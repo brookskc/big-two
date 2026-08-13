@@ -46,8 +46,11 @@
     font:inherit;font-size:12px;padding:6px 12px;border-radius:99px;
   }
   .newgame:active{color:var(--paper);border-color:var(--muted)}
-  .hright{display:flex;align-items:center;gap:10px}
-  .handno{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  header{position:relative}
+  .handno{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
 
   /* opponents */
   .opps{display:flex;justify-content:space-around;padding:4px 10px 0;gap:8px}
@@ -79,10 +82,6 @@
   /* table / pile */
   .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
   .pile{position:relative;height:110px;width:100%;display:flex;align-items:center;justify-content:center}
-  .pile::before{ /* the printed ring on the felt */
-    content:"";position:absolute;width:min(76vw,300px);height:104px;
-    border:1px solid rgba(214,162,62,.13);border-radius:50%;pointer-events:none;
-  }
   .play-group{position:absolute;display:flex;transition:opacity .35s, transform .35s}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
@@ -135,7 +134,11 @@
   .btn.play{background:var(--red);color:#FFF7EC;box-shadow:0 3px 10px rgba(194,56,44,.35)}
   .btn.play:active:not(:disabled){transform:translateY(1px)}
   .footrow{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 2px}
-  .hint{font-size:10.5px;color:var(--muted);letter-spacing:.03em}
+  .howto{
+    background:none;border:none;color:var(--muted);font:inherit;font-size:10.5px;
+    letter-spacing:.03em;padding:5px 0;text-decoration:underline;text-underline-offset:3px;
+    text-decoration-color:rgba(255,255,255,.25);
+  }
   .seg{display:flex;border:1px solid var(--line);border-radius:99px;overflow:hidden}
   .seg button{background:none;border:none;color:var(--muted);font:inherit;font-size:10.5px;font-weight:600;padding:5px 10px}
   .seg button.on{background:rgba(214,162,62,.16);color:var(--gold)}
@@ -177,7 +180,8 @@
 
 <header>
   <div class="brand"><span class="zh">大老二</span>Big Two</div>
-  <div class="hright"><span class="handno" id="handNo"></span><button class="newgame" id="btnHelp" aria-label="How to play">?</button><button class="newgame" id="btnNew">New match</button></div>
+  <span class="handno" id="handNo"></span>
+  <button class="newgame" id="btnNew">New match</button>
 </header>
 
 <div class="opps" id="opps"></div>
@@ -194,7 +198,7 @@
     <button class="btn play" id="btnPlay">Play</button>
   </div>
   <div class="footrow">
-    <div class="hint">3 low · 2 high · ♦ ♣ ♥ ♠</div>
+    <button class="howto" id="btnHelp">How to play</button>
     <div class="seg" id="seg" role="group" aria-label="Bot difficulty">
       <button data-d="easy">Easy</button><button data-d="medium">Med</button><button data-d="hard">Hard</button>
     </div>
