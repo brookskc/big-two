@@ -69,7 +69,6 @@
     font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;
     white-space:nowrap;pointer-events:none;animation:chipLife 1.7s ease-out forwards;
   }
-  .chip.play{background:var(--paper);color:var(--ink)}
   .chip.passed{background:var(--felt-hi);color:var(--muted);border:1px solid var(--line)}
   @keyframes chipLife{
     0%{transform:translateX(-50%) scale(.7);opacity:0}
@@ -593,7 +592,7 @@ function applyPlay(seat,combo){
   advance();
 }
 function applyPass(seat){
-  if(seat!==0)bubble(seat,"Pass","passed");
+  if(seat!==0)bubble(seat,"Pass");
   advance();
 }
 function advance(){
@@ -621,12 +620,8 @@ function queueBot(){
   const delay=base+Math.random()*jitter;
   state.timer=setTimeout(()=>{
     if(state.over)return;
-    if(pick){
-      bubble(seat,describe(pick));
-      applyPlay(seat,pick);
-    }else{
-      applyPass(seat);
-    }
+    if(pick)applyPlay(seat,pick);
+    else applyPass(seat);
   },delay);
 }
 function endGame(winner){
@@ -748,21 +743,21 @@ function renderOpps(){
     t.count.innerHTML=`${state.hands[s].length}<small>cards</small>`;
     t.score.textContent=scoreFmt(match.scores[s]);
     const b=state.bubble&&state.bubble.seat===s?state.bubble:null;
-    const key=b?b.kind+"|"+b.text:"";
+    const key=b?b.text:"";
     if(key!==t.chipKey){
       t.chipKey=key;
       if(t.chip){t.chip.remove();t.chip=null;}
       if(b){
         t.chip=document.createElement("div");
-        t.chip.className="chip "+b.kind;
+        t.chip.className="chip passed";
         t.chip.textContent=b.text;
         t.root.appendChild(t.chip);
       }
     }
   }
 }
-function bubble(seat,text,kind){
-  state.bubble={seat,text,kind:kind||"play"};
+function bubble(seat,text){
+  state.bubble={seat,text};
   renderOpps();
   clearTimeout(ui.bubbleTimer);
   ui.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
