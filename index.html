@@ -60,12 +60,14 @@
   .opp.active .name{color:var(--gold)}
   .opp .count{font-family:ui-rounded,-apple-system,sans-serif;font-weight:700;font-size:19px}
   .opp .count small{font-size:10px;font-weight:500;color:var(--muted);margin-left:3px}
-  .opp .bubble{
+  .opp .chip{
     position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);
-    background:var(--paper);color:var(--ink);font-size:10px;font-weight:600;
-    padding:2px 8px;border-radius:99px;opacity:0;transition:opacity .2s;white-space:nowrap;pointer-events:none;
+    font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;
+    white-space:nowrap;pointer-events:none;animation:pop .18s ease-out;
   }
-  .opp .bubble.show{opacity:1}
+  .chip.play{background:var(--paper);color:var(--ink)}
+  .chip.passed{background:var(--felt-hi);color:var(--muted);border:1px solid var(--line)}
+  @keyframes pop{from{transform:translateX(-50%) scale(.7);opacity:0}}
 
   /* table / pile */
   .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
@@ -119,7 +121,11 @@
   .btn.pass{background:rgba(255,255,255,.09);color:var(--paper);border:1px solid var(--line)}
   .btn.play{background:var(--red);color:#FFF7EC;box-shadow:0 3px 10px rgba(194,56,44,.35)}
   .btn.play:active:not(:disabled){transform:translateY(1px)}
-  .hint{text-align:center;font-size:10.5px;color:var(--muted);padding:6px 0 2px;letter-spacing:.03em}
+  .footrow{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 2px}
+  .hint{font-size:10.5px;color:var(--muted);letter-spacing:.03em}
+  .seg{display:flex;border:1px solid var(--line);border-radius:99px;overflow:hidden}
+  .seg button{background:none;border:none;color:var(--muted);font:inherit;font-size:10.5px;font-weight:600;padding:5px 10px}
+  .seg button.on{background:rgba(214,162,62,.16);color:var(--gold)}
 
   /* overlay */
   .overlay{
@@ -170,7 +176,12 @@
     <button class="btn pass" id="btnPass">Pass</button>
     <button class="btn play" id="btnPlay">Play</button>
   </div>
-  <div class="hint">3 low · 2 high&nbsp;&nbsp;·&nbsp;&nbsp;♦ ♣ ♥ ♠</div>
+  <div class="footrow">
+    <div class="hint">3 low · 2 high · ♦ ♣ ♥ ♠</div>
+    <div class="seg" id="seg" role="group" aria-label="Bot difficulty">
+      <button data-d="easy">Easy</button><button data-d="medium">Med</button><button data-d="hard">Hard</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="overlay">
@@ -296,40 +307,125 @@ function allCombos(hand){
 }
 
 /* ---------------- bot ---------------- */
+/* Three deterministic difficulties. No coin flips anywhere:
+     easy    answers with the cheapest legal play, never passes by choice,
+             and leads its lowest single
+     medium  cheapest legal play, but protects 2s and intact pairs with
+             fixed rules, and dumps low cards in big shapes when leading
+     hard    evaluates the whole hand: greedy partition into fewest plays,
+             control-card valuation, and a fixed structural-damage threshold
+             for choosing to pass */
+
+let difficulty=loadDifficulty();
+function loadDifficulty(){
+  try{const d=localStorage.getItem("big2-diff");return["easy","medium","hard"].includes(d)?d:"medium";}
+  catch(e){return"medium";}
+}
+function setDifficulty(d){
+  difficulty=d;
+  try{localStorage.setItem("big2-diff",d);}catch(e){}
+  renderDifficulty();
+}
+
+/* Control value: how much winning power a card carries.
+   2s dominate, aces matter, kings a little, everything else is cargo. */
+const controlValue=v=>v>=48?30+(v-48)*4:v>=44?12+(v-44)*2:v>=40?3+(v-40):0;
+
+/* Greedy partition: roughly the fewest plays needed to empty a hand,
+   taking the biggest cheapest shapes first. Cached: hard mode evaluates
+   many candidate futures per move. */
+const turnsCache=new Map();
+function turnsToGo(hand){
+  const key=hand.map(val).sort((a,b)=>a-b).join(",");
+  if(turnsCache.has(key))return turnsCache.get(key);
+  let rest=[...hand],turns=0;
+  for(const size of[5,3,2]){
+    for(;;){
+      const c=allCombos(rest).filter(x=>x.size===size)
+        .sort((a,b)=>(a.cat-b.cat)||(a.strength-b.strength))[0];
+      if(!c)break;
+      turns++;
+      rest=rest.filter(x=>!c.cards.includes(x));
+    }
+  }
+  turns+=rest.length;
+  if(turnsCache.size>800)turnsCache.clear();
+  turnsCache.set(key,turns);
+  return turns;
+}
+/* Hand quality: few plays left, few cards held (multiplier scoring punishes
+   hoarding), and control kept. */
+const handScore=hand=>
+  -turnsToGo(hand)*24-hand.length*3+hand.reduce((a,c)=>a+controlValue(val(c)),0);
+
 function botChoose(seat){
   const hand=state.hands[seat];
-  const combos=allCombos(hand);
   const current=state.current;
-  const rankCount={};hand.forEach(c=>rankCount[c.r]=(rankCount[c.r]||0)+1);
-  const minOpp=Math.min(...state.hands.map((h,i)=>i===seat?99:h.length));
-  const urgent=minOpp<=3; // someone is close to going out: stop being polite
-
-  if(!current){
-    // Leading: dump low cards, prefer bigger shapes, hold 2s early.
-    let best=null,bestScore=Infinity;
-    for(const c of combos){
-      if(state.firstMove&&!c.cards.some(isThreeD))continue;
-      let score=c.cards.reduce((a,x)=>a+val(x),0)/c.size - c.size*7;
-      if(hand.length>4&&c.cards.some(x=>x.r===12))score+=120;
-      if(c.size===hand.length)score-=1000; // going out beats everything
-      if(score<bestScore){bestScore=score;best=c;}
-    }
-    return best; // a leader always has at least a single
-  }
-
-  const opts=combos.filter(c=>beats(c,current));
-  if(!opts.length)return null;
-  // Cheapest legal answer first; nudged away from breaking pairs/triples.
-  const wastePen=x=>
-    (x.size===1&&rankCount[x.cards[0].r]>=2)||(x.size===2&&rankCount[x.cards[0].r]>=3)?10:0;
-  opts.sort((a,b)=>(a.cat*200+a.strength+wastePen(a))-(b.cat*200+b.strength+wastePen(b)));
+  const combos=allCombos(hand);
+  const opts=(current?combos.filter(c=>beats(c,current))
+                     :combos.filter(c=>!state.firstMove||c.cards.some(isThreeD)));
+  if(!opts.length)return null; // no legal play: forced pass
   const winner=opts.find(o=>o.size===hand.length);
-  if(winner)return winner;
-  const pick=opts[0];
-  // Discretion: sometimes decline to burn a 2 or split a pair while the game is young.
-  if(!urgent&&hand.length>6&&pick.cards.some(c=>c.r===12)&&Math.random()<0.65)return null;
-  if(!urgent&&hand.length>7&&pick.size===1&&rankCount[pick.cards[0].r]>=2&&Math.random()<0.4)return null;
-  return pick;
+  if(winner)return winner;     // going out ends all debate
+  const minOpp=Math.min(...state.hands.map((h,i)=>i===seat?99:h.length));
+  const urgent=minOpp<=3;      // someone is about to go out: no more discretion
+  if(difficulty==="easy")return easyChoose(opts,current);
+  if(difficulty==="medium")return mediumChoose(opts,current,hand,urgent);
+  return hardChoose(opts,current,hand,urgent,minOpp);
+}
+
+const cheapest=opts=>[...opts].sort((a,b)=>(a.cat-b.cat)||(a.strength-b.strength))[0];
+
+function easyChoose(opts,current){
+  if(current)return cheapest(opts);
+  const singles=opts.filter(o=>o.size===1);
+  return cheapest(singles.length?singles:opts);
+}
+
+function mediumChoose(opts,current,hand,urgent){
+  const rankCount={};hand.forEach(c=>rankCount[c.r]=(rankCount[c.r]||0)+1);
+  if(current){
+    const wastePen=x=>
+      (x.size===1&&rankCount[x.cards[0].r]>=2)||(x.size===2&&rankCount[x.cards[0].r]>=3)?10:0;
+    const pick=[...opts].sort((a,b)=>
+      (a.cat*200+a.strength+wastePen(a))-(b.cat*200+b.strength+wastePen(b)))[0];
+    if(urgent)return pick;
+    if(hand.length>6&&pick.cards.some(c=>c.r===12))return null;                    // protects its 2s
+    if(hand.length>7&&pick.size===1&&rankCount[pick.cards[0].r]>=2)return null;    // and its pairs
+    return pick;
+  }
+  let best=null,bestScore=Infinity; // leading: dump low cards, prefer big shapes
+  for(const c of opts){
+    let s=c.cards.reduce((a,x)=>a+val(x),0)/c.size-c.size*7;
+    if(hand.length>4&&c.cards.some(x=>x.r===12))s+=120;
+    if(s<bestScore){bestScore=s;best=c;}
+  }
+  return best;
+}
+
+function hardChoose(opts,current,hand,urgent,minOpp){
+  // Endgame denial: someone is on their last card or two. Beat a single
+  // with the tallest single available and take the lead away.
+  if(urgent&&current&&current.size===1&&minOpp<=2){
+    const singles=opts.filter(o=>o.size===1);
+    if(singles.length)return singles.sort((a,b)=>b.strength-a.strength)[0];
+  }
+  // Evaluate the hand each option would leave behind. Presorted cheap-first
+  // and capped so a worst-case option list stays fast on a phone.
+  const ranked=[...opts].sort((a,b)=>(a.cat-b.cat)||(a.strength-b.strength)).slice(0,24);
+  let best=null,bestScore=-Infinity;
+  for(const o of ranked){
+    let s=handScore(hand.filter(c=>!o.cards.includes(c)))-o.strength/100;
+    if(!current&&minOpp<=2&&o.size>1)s+=30; // lead shapes a near-empty hand can't answer
+    if(s>bestScore){bestScore=s;best=o;}
+  }
+  if(current&&!urgent){
+    // Passing keeps the hand intact but forfeits tempo, and tempo gets
+    // dearer as the shortest opposing hand shrinks.
+    const tempo=4+Math.max(0,10-minOpp)*2;
+    if(bestScore<handScore(hand)-tempo)return null;
+  }
+  return best;
 }
 
 /* ---------------- match: set scoring + persistence ---------------- */
@@ -339,11 +435,12 @@ const STORE="big2-match";
 // HK convention: 1x per card left, 2x at 8+, 3x at 10+, 4x for a full 13.
 const penalty=n=>n===0?0:n*(n>=13?4:n>=10?3:n>=8?2:1);
 
+const intArray4=a=>Array.isArray(a)&&a.length===4&&a.every(Number.isInteger);
 function loadMatch(){
   try{
     const m=JSON.parse(localStorage.getItem(STORE));
     const ok=m
-      &&Array.isArray(m.scores)&&m.scores.length===4&&m.scores.every(Number.isFinite)
+      &&intArray4(m.scores)&&intArray4(m.wins)&&intArray4(m.lastWon)
       &&Number.isInteger(m.hand)&&m.hand>=0&&m.hand<MATCH_LEN
       &&Number.isInteger(m.lastWinner)&&m.lastWinner>=-1&&m.lastWinner<4;
     return ok?m:null;
@@ -351,9 +448,10 @@ function loadMatch(){
 }
 function saveMatch(){try{localStorage.setItem(STORE,JSON.stringify(match));}catch(e){}}
 function clearSavedMatch(){try{localStorage.removeItem(STORE);}catch(e){}}
-let match=loadMatch()||{scores:[0,0,0,0],hand:0,lastWinner:-1};
+const freshMatch=()=>({scores:[0,0,0,0],wins:[0,0,0,0],lastWon:[-1,-1,-1,-1],hand:0,lastWinner:-1});
+let match=loadMatch()||freshMatch();
 function newMatch(){
-  match={scores:[0,0,0,0],hand:0,lastWinner:-1};
+  match=freshMatch();
   saveMatch();
   startHand();
 }
@@ -373,8 +471,8 @@ function startHand(){
   if(match.lastWinner>=0){leader=match.lastWinner;mustD=false;}
   else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
   state={
-    hands,turn:leader,current:null,owner:-1,
-    firstMove:mustD,over:false,sel:new Set(),plays:[],animSeen:0,timer:null
+    hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
+    sel:new Set(),plays:[],animSeen:0,passed:new Set(),timer:null
   };
   pileKey=handKey="!";
   overlay.classList.remove("show");
@@ -402,13 +500,14 @@ function applyPlay(seat,combo){
   const h=state.hands[seat];
   combo.cards.forEach(c=>h.splice(h.findIndex(x=>x.r===c.r&&x.s===c.s),1));
   state.current=combo;state.owner=seat;state.firstMove=false;
+  state.passed.delete(seat);
   state.plays.push({seat,combo});
   if(seat===0)state.sel.clear();
   if(h.length===0){renderAll();endGame(seat);return;}
   advance();
 }
 function applyPass(seat){
-  if(seat!==0)bubble(seat,"Pass");
+  state.passed.add(seat); // chip stays until they play again or the trick clears
   advance();
 }
 function advance(){
@@ -416,6 +515,7 @@ function advance(){
   if(state.turn===state.owner&&state.current){
     // Everyone passed: the trick clears and its owner leads fresh.
     state.current=null;state.owner=-1;
+    state.passed.clear();
     fadePile();
     setStatus(state.turn===0?"Everyone passed. <b>You lead</b>":`Table cleared. <b>${NAMES[state.turn]}</b> leads`,state.turn===0);
   }else if(state.turn===0){
@@ -443,13 +543,16 @@ function endGame(winner){
   state.over=true;
   clearTimeout(state.timer);
   match.lastWinner=winner;
+  match.wins[winner]++;
+  match.lastWon[winner]=match.hand;
   match.hand++;
   const pens=state.hands.map(h=>penalty(h.length));
   pens.forEach((p,i)=>match.scores[i]+=p);
   const done=match.hand>=MATCH_LEN;
   done?clearSavedMatch():saveMatch();
-  // Stable sort: score ties keep seat order, so you win ties. House always loses here.
-  const order=[0,1,2,3].sort((a,b)=>match.scores[a]-match.scores[b]);
+  // Tiebreak chain: lowest score, then most hands won, then most recent hand won.
+  const order=[0,1,2,3].sort((a,b)=>
+    match.scores[a]-match.scores[b]||match.wins[b]-match.wins[a]||match.lastWon[b]-match.lastWon[a]);
   const champ=order[0];
   ovTitle.textContent=done
     ?(champ===0?"You win the set!":`${NAMES[champ]} wins the set`)
@@ -458,9 +561,12 @@ function endGame(winner){
   ovSub.textContent=done
     ?`Final after ${MATCH_LEN} hands · lowest score wins`
     :`Hand ${match.hand} of ${MATCH_LEN} · penalties this hand · total`;
-  ovRows.innerHTML=order.map((s,i)=>
-    `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${pens[s]?"+"+pens[s]:"—"} · ${match.scores[s]}</span></div>`
-  ).join("");
+  ovRows.innerHTML=order.map((s,i)=>{
+    const right=done
+      ?`${match.scores[s]} pts · ${match.wins[s]} won`
+      :`${pens[s]?"+"+pens[s]:"·"} · ${match.scores[s]}`;
+    return `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${right}</span></div>`;
+  }).join("");
   btnAgain.textContent=done?"New set":"Next hand";
   ovTimer=setTimeout(()=>overlay.classList.add("show"),700);
 }
@@ -478,6 +584,15 @@ const ovSub=document.getElementById("ovSub");
 const ovRows=document.getElementById("ovRows");
 const handNo=document.getElementById("handNo");
 const btnAgain=document.getElementById("btnAgain");
+const segEl=document.getElementById("seg");
+
+function renderDifficulty(){
+  [...segEl.children].forEach(b=>{
+    const on=b.dataset.d===difficulty;
+    b.classList.toggle("on",on);
+    b.setAttribute("aria-pressed",on);
+  });
+}
 
 const SUIT_NAMES=["diamonds","clubs","hearts","spades"];
 const RANK_NAMES=["3","4","5","6","7","8","9","10","jack","queen","king","ace","2"];
@@ -494,8 +609,10 @@ function renderOpps(){
   for(let s=1;s<=3;s++){
     const d=document.createElement("div");
     d.className="opp"+(state.turn===s&&!state.over?" active":"");
-    const bub=state.bubble&&state.bubble.seat===s?state.bubble.text:"";
-    d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div><div class="bubble${bub?" show":""}">${bub}</div>`;
+    const bub=state.bubble&&state.bubble.seat===s?state.bubble.text:null;
+    const chip=bub?`<div class="chip play">${bub}</div>`
+      :state.passed.has(s)?`<div class="chip passed">Passed</div>`:"";
+    d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div>${chip}`;
     oppsEl.appendChild(d);
   }
 }
@@ -593,11 +710,16 @@ document.getElementById("btnNew").addEventListener("click",()=>{
 btnAgain.addEventListener("click",()=>{
   if(match.hand>=MATCH_LEN)newMatch();else startHand();
 });
+segEl.addEventListener("click",e=>{
+  const b=e.target.closest("button");
+  if(b&&b.dataset.d)setDifficulty(b.dataset.d);
+});
 
 if("serviceWorker" in navigator){
   addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 }
 
+renderDifficulty();
 startHand();
 </script>
 </body>
