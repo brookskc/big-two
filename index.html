@@ -568,16 +568,21 @@ function advance(){
 }
 function queueBot(){
   clearTimeout(state.timer);
+  const seat=state.turn;
+  const pick=botChoose(seat);
+  // Pace by information: a pass needs little reading time, a five-card hand earns a beat.
+  const delay=!pick?1000+Math.random()*300
+    :pick.size===5?2000+Math.random()*500
+    :1400+Math.random()*500;
   state.timer=setTimeout(()=>{
     if(state.over)return;
-    const pick=botChoose(state.turn);
     if(pick){
-      bubble(state.turn,describe(pick));
-      applyPlay(state.turn,pick);
+      bubble(seat,describe(pick));
+      applyPlay(seat,pick);
     }else{
-      applyPass(state.turn);
+      applyPass(seat);
     }
-  },1250+Math.random()*750);
+  },delay);
 }
 function endGame(winner){
   state.over=true;
