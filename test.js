@@ -12,7 +12,7 @@ const script = html.match(/<script>\n"use strict";([\s\S]*?)<\/script>/)[1];
 const el = () => ({
   innerHTML: "", textContent: "",
   classList: { add(){}, remove(){}, toggle(){} },
-  setAttribute(){}, addEventListener(){}, appendChild(){},
+  setAttribute(){}, addEventListener(){}, appendChild(){}, querySelector: () => null,
   style: { setProperty(){} }, children: [], dataset: {}, remove(){}
 });
 const stubs = {
