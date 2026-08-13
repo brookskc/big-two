@@ -63,11 +63,16 @@
   .opp .chip{
     position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);
     font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;
-    white-space:nowrap;pointer-events:none;animation:pop .18s ease-out;
+    white-space:nowrap;pointer-events:none;animation:chipLife 1.7s ease-out forwards;
   }
   .chip.play{background:var(--paper);color:var(--ink)}
   .chip.passed{background:var(--felt-hi);color:var(--muted);border:1px solid var(--line)}
-  @keyframes pop{from{transform:translateX(-50%) scale(.7);opacity:0}}
+  @keyframes chipLife{
+    0%{transform:translateX(-50%) scale(.7);opacity:0}
+    10%{transform:translateX(-50%) scale(1);opacity:1}
+    70%{opacity:1}
+    100%{opacity:0}
+  }
 
   /* table / pile */
   .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
@@ -472,7 +477,7 @@ function startHand(){
   else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
   state={
     hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
-    sel:new Set(),plays:[],animSeen:0,passed:new Set(),timer:null
+    sel:new Set(),plays:[],animSeen:0,timer:null
   };
   pileKey=handKey="!";
   overlay.classList.remove("show");
@@ -500,14 +505,13 @@ function applyPlay(seat,combo){
   const h=state.hands[seat];
   combo.cards.forEach(c=>h.splice(h.findIndex(x=>x.r===c.r&&x.s===c.s),1));
   state.current=combo;state.owner=seat;state.firstMove=false;
-  state.passed.delete(seat);
   state.plays.push({seat,combo});
   if(seat===0)state.sel.clear();
   if(h.length===0){renderAll();endGame(seat);return;}
   advance();
 }
 function applyPass(seat){
-  state.passed.add(seat); // chip stays until they play again or the trick clears
+  if(seat!==0)bubble(seat,"Pass","passed");
   advance();
 }
 function advance(){
@@ -515,7 +519,6 @@ function advance(){
   if(state.turn===state.owner&&state.current){
     // Everyone passed: the trick clears and its owner leads fresh.
     state.current=null;state.owner=-1;
-    state.passed.clear();
     fadePile();
     setStatus(state.turn===0?"Everyone passed. <b>You lead</b>":`Table cleared. <b>${NAMES[state.turn]}</b> leads`,state.turn===0);
   }else if(state.turn===0){
@@ -609,15 +612,14 @@ function renderOpps(){
   for(let s=1;s<=3;s++){
     const d=document.createElement("div");
     d.className="opp"+(state.turn===s&&!state.over?" active":"");
-    const bub=state.bubble&&state.bubble.seat===s?state.bubble.text:null;
-    const chip=bub?`<div class="chip play">${bub}</div>`
-      :state.passed.has(s)?`<div class="chip passed">Passed</div>`:"";
+    const bub=state.bubble&&state.bubble.seat===s?state.bubble:null;
+    const chip=bub?`<div class="chip ${bub.kind}">${bub.text}</div>`:"";
     d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div>${chip}`;
     oppsEl.appendChild(d);
   }
 }
-function bubble(seat,text){
-  state.bubble={seat,text};
+function bubble(seat,text,kind){
+  state.bubble={seat,text,kind:kind||"play"};
   renderOpps();
   clearTimeout(state.bubbleTimer);
   state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
