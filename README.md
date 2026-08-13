@@ -38,7 +38,7 @@ You play against Kit, Chun, and Ming. Three difficulty modes, selectable in-game
 
 - **Easy** answers with the cheapest legal play, never passes by choice, and leads its lowest single.
 - **Medium** plays the cheapest legal answer but protects its 2s and intact pairs with fixed rules, and dumps low cards in big shapes when leading.
-- **Hard** runs a hand-strength evaluator: it greedily partitions its hand into the fewest plays needed to empty it, values control cards (2s, aces), penalizes hoarding (the score multipliers punish getting caught heavy), and decides whether to pass by comparing the structural cost of the cheapest answer against the tempo value of staying in the trick. It also plays endgame denial, beating singles with its tallest card when someone is nearly out.
+- **Hard** runs a hand-strength evaluator: it greedily partitions its hand into the fewest plays needed to empty it, penalizes hoarding (the score multipliers punish getting caught heavy), and decides whether to pass by comparing the structural cost of the cheapest answer against the tempo value of staying in the trick. It also counts cards: control value is computed from what's actually still unseen, so a king is treated as the boss card once both 2s and all four aces have hit the table. And it plays endgame denial, beating singles with its tallest card when someone is nearly out.
 
 In a 250-hand simulation, hard gives up markedly fewer points per match than medium, and medium fewer than easy.
 
@@ -47,6 +47,16 @@ In a 250-hand simulation, hard gives up markedly fewer points per match than med
 - Single `index.html`: vanilla JavaScript, no frameworks, no build step, no dependencies.
 - `sw.js` + `manifest.webmanifest` make it an installable PWA with cache-first offline support.
 - Runs entirely client-side. Nothing ever leaves your device.
+
+The app also keeps a lifetime record of matches won, shown on the end-of-match screen.
+
+## Tests
+
+```bash
+node test.js
+```
+
+No dependencies. The suite extracts the game's script straight out of `index.html`, runs it in Node with a stub DOM and a seeded RNG, and asserts the rules engine (hand classification, comparison, the 3♦ rule), the card counting, zero-sum settlement over full matches on every difficulty, bot quality (hard must outscore medium and easy over 30 seat-mixed matches), and the persistence guards. Deterministic: every run plays the same cards.
 
 ## Develop
 

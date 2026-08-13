@@ -367,7 +367,20 @@ function setDifficulty(d){
   renderDifficulty();
 }
 
-/* Control value: how much winning power a card carries.
+/* All bot tuning in one place. */
+const BOT={
+  TURN_W:24,     // value of needing one fewer play to go out
+  HOLD_W:3,      // per-card cost of hoarding (multiplier scoring punishes it)
+  TEMPO_BASE:4,  // base cost of passing…
+  TEMPO_SLOPE:2, // …growing as the shortest opposing hand shrinks
+  SAVE_TWOS:120, // medium: reluctance to lead a 2 early
+  LEAD_SIZE:7,   // medium: preference for leading bigger shapes
+  WASTE:10,      // medium: penalty for breaking a pair or triple
+  EVAL_CAP:24,   // hard: candidate options evaluated per move
+  BOSS:[46,26,14,7] // hard: control value when 0/1/2/3 higher cards remain unseen
+};
+
+/* Static control value: how much winning power a card carries on paper.
    2s dominate, aces matter, kings a little, everything else is cargo. */
 const controlValue=v=>v>=48?30+(v-48)*4:v>=44?12+(v-44)*2:v>=40?3+(v-40):0;
 
@@ -393,10 +406,27 @@ function turnsToGo(hand){
   turnsCache.set(key,turns);
   return turns;
 }
-/* Hand quality: few plays left, few cards held (multiplier scoring punishes
-   hoarding), and control kept. */
-const handScore=hand=>
-  -turnsToGo(hand)*24-hand.length*3+hand.reduce((a,c)=>a+controlValue(val(c)),0);
+/* Card counting (hard only): how many cards higher than value v are still
+   unseen — not yet played this hand and not in the given hand. extra lists
+   values about to be played, so evaluated futures don't forget their own play. */
+function unseenHigher(v,hand,extra){
+  let n=51-v; // card values are unique, 0..51
+  for(const s of state.seen)if(s>v)n--;
+  for(const c of hand)if(val(c)>v)n--;
+  for(const x of extra)if(x>v)n--;
+  return n;
+}
+/* Hand quality for hard mode: few plays left, few cards held (multiplier
+   scoring punishes hoarding), and control valued by what's actually still
+   out there — a king becomes a boss card once the 2s and aces are gone. */
+function hardScore(hand,extra){
+  let s=-turnsToGo(hand)*BOT.TURN_W-hand.length*BOT.HOLD_W;
+  for(const c of hand){
+    const v=val(c),u=unseenHigher(v,hand,extra);
+    s+=u<4?BOT.BOSS[u]:controlValue(v);
+  }
+  return s;
+}
 
 function botChoose(seat){
   const hand=state.hands[seat];
@@ -426,7 +456,7 @@ function mediumChoose(opts,current,hand,urgent){
   const rankCount={};hand.forEach(c=>rankCount[c.r]=(rankCount[c.r]||0)+1);
   if(current){
     const wastePen=x=>
-      (x.size===1&&rankCount[x.cards[0].r]>=2)||(x.size===2&&rankCount[x.cards[0].r]>=3)?10:0;
+      (x.size===1&&rankCount[x.cards[0].r]>=2)||(x.size===2&&rankCount[x.cards[0].r]>=3)?BOT.WASTE:0;
     const pick=[...opts].sort((a,b)=>
       (a.cat*200+a.strength+wastePen(a))-(b.cat*200+b.strength+wastePen(b)))[0];
     if(urgent)return pick;
@@ -436,8 +466,8 @@ function mediumChoose(opts,current,hand,urgent){
   }
   let best=null,bestScore=Infinity; // leading: dump low cards, prefer big shapes
   for(const c of opts){
-    let s=c.cards.reduce((a,x)=>a+val(x),0)/c.size-c.size*7;
-    if(hand.length>4&&c.cards.some(x=>x.r===12))s+=120;
+    let s=c.cards.reduce((a,x)=>a+val(x),0)/c.size-c.size*BOT.LEAD_SIZE;
+    if(hand.length>4&&c.cards.some(x=>x.r===12))s+=BOT.SAVE_TWOS;
     if(s<bestScore){bestScore=s;best=c;}
   }
   return best;
@@ -452,18 +482,19 @@ function hardChoose(opts,current,hand,urgent,minOpp){
   }
   // Evaluate the hand each option would leave behind. Presorted cheap-first
   // and capped so a worst-case option list stays fast on a phone.
-  const ranked=[...opts].sort((a,b)=>(a.cat-b.cat)||(a.strength-b.strength)).slice(0,24);
+  const ranked=[...opts].sort((a,b)=>(a.cat-b.cat)||(a.strength-b.strength)).slice(0,BOT.EVAL_CAP);
   let best=null,bestScore=-Infinity;
   for(const o of ranked){
-    let s=handScore(hand.filter(c=>!o.cards.includes(c)))-o.strength/100;
+    const played=o.cards.map(val);
+    let s=hardScore(hand.filter(c=>!o.cards.includes(c)),played)-o.strength/100;
     if(!current&&minOpp<=2&&o.size>1)s+=30; // lead shapes a near-empty hand can't answer
     if(s>bestScore){bestScore=s;best=o;}
   }
   if(current&&!urgent){
     // Passing keeps the hand intact but forfeits tempo, and tempo gets
     // dearer as the shortest opposing hand shrinks.
-    const tempo=4+Math.max(0,10-minOpp)*2;
-    if(bestScore<handScore(hand)-tempo)return null;
+    const tempo=BOT.TEMPO_BASE+Math.max(0,10-minOpp)*BOT.TEMPO_SLOPE;
+    if(bestScore<hardScore(hand,[])-tempo)return null;
   }
   return best;
 }
@@ -492,6 +523,15 @@ function saveMatch(){try{localStorage.setItem(STORE,JSON.stringify(match));}catc
 function clearSavedMatch(){try{localStorage.removeItem(STORE);}catch(e){}}
 const freshMatch=()=>({scores:[0,0,0,0],wins:[0,0,0,0],lastWon:[-1,-1,-1,-1],hand:0,lastWinner:-1});
 let match=loadMatch()||freshMatch();
+const CAREER="big2-career";
+function loadCareer(){
+  try{
+    const c=JSON.parse(localStorage.getItem(CAREER));
+    return c&&Number.isInteger(c.matches)&&Number.isInteger(c.won)&&c.won>=0&&c.won<=c.matches?c:null;
+  }catch(e){return null;}
+}
+let career=loadCareer()||{matches:0,won:0};
+function saveCareer(){try{localStorage.setItem(CAREER,JSON.stringify(career));}catch(e){}}
 function newMatch(){
   match=freshMatch();
   saveMatch();
@@ -499,11 +539,14 @@ function newMatch(){
 }
 
 /* ---------------- flow ---------------- */
-let state=null,ovTimer=null;
+let state=null;
+/* Render bookkeeping: keys remember what each region last drew so unchanged
+   regions aren't rebuilt (a rebuild kills any CSS animation mid-flight). */
+const ui={oppsKey:"!",pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null};
 
 function startHand(){
   clearTimeout(state?.timer);
-  clearTimeout(ovTimer);
+  clearTimeout(ui.ovTimer);
   const d=deck();
   const hands=[[],[],[],[]];
   d.forEach((c,i)=>hands[i%4].push(c));
@@ -514,9 +557,9 @@ function startHand(){
   else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
   state={
     hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
-    sel:new Set(),plays:[],animSeen:0,timer:null
+    sel:new Set(),seen:new Set(),plays:[],animSeen:0,timer:null
   };
-  pileKey=handKey="!";
+  ui.oppsKey=ui.pileKey=ui.handKey="!";
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
   setStatus(mustD
@@ -540,7 +583,10 @@ function describe(c){
 
 function applyPlay(seat,combo){
   const h=state.hands[seat];
-  combo.cards.forEach(c=>h.splice(h.findIndex(x=>x.r===c.r&&x.s===c.s),1));
+  combo.cards.forEach(c=>{
+    h.splice(h.findIndex(x=>x.r===c.r&&x.s===c.s),1);
+    state.seen.add(val(c)); // public information: everyone saw it played
+  });
   state.current=combo;state.owner=seat;state.firstMove=false;
   state.plays.push({seat,combo});
   if(seat===0)state.sel.clear();
@@ -571,9 +617,9 @@ function queueBot(){
   const seat=state.turn;
   const pick=botChoose(seat);
   // Pace by information: a pass needs little reading time, a five-card hand earns a beat.
-  const delay=!pick?1000+Math.random()*300
-    :pick.size===5?2000+Math.random()*500
-    :1400+Math.random()*500;
+  const PACE={PASS:[1000,300],SMALL:[1400,500],FIVE:[2000,500]};
+  const [base,jitter]=!pick?PACE.PASS:pick.size===5?PACE.FIVE:PACE.SMALL;
+  const delay=base+Math.random()*jitter;
   state.timer=setTimeout(()=>{
     if(state.over)return;
     if(pick){
@@ -605,8 +651,9 @@ function endGame(winner){
     ?(champ===0?"You win the match!":`${NAMES[champ]} wins the match`)
     :(winner===0?"You win the hand!":`${NAMES[winner]} wins the hand`);
   ovTitle.classList.toggle("win",done?champ===0:winner===0);
+  if(done){career.matches++;if(champ===0)career.won++;saveCareer();}
   ovSub.textContent=done
-    ?`Final after ${MATCH_LEN} hands · highest score wins`
+    ?`You've won ${career.won} of ${career.matches} matches · highest score wins`
     :`Hand ${match.hand} of ${MATCH_LEN} · this hand · running total`;
   ovRows.innerHTML=order.map((s,i)=>{
     const right=done
@@ -615,7 +662,7 @@ function endGame(winner){
     return `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${right}</span></div>`;
   }).join("");
   btnAgain.textContent=done?"New match":"Next hand";
-  ovTimer=setTimeout(()=>{
+  ui.ovTimer=setTimeout(()=>{
     overlay.classList.add("show");
     if(done&&champ===0)celebrate();
   },700);
@@ -677,6 +724,9 @@ function cardEl(c){
   return d;
 }
 function renderOpps(){
+  const k=`${state.turn}|${state.over}|${state.hands.map(x=>x.length).join()}|${match.scores.join()}|${state.bubble?state.bubble.seat+state.bubble.text+state.bubble.kind:""}`;
+  if(k===ui.oppsKey)return;
+  ui.oppsKey=k;
   oppsEl.innerHTML="";
   for(let s=1;s<=3;s++){
     const d=document.createElement("div");
@@ -690,18 +740,17 @@ function renderOpps(){
 function bubble(seat,text,kind){
   state.bubble={seat,text,kind:kind||"play"};
   renderOpps();
-  clearTimeout(state.bubbleTimer);
-  state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
+  clearTimeout(ui.bubbleTimer);
+  ui.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
 }
 
 /* The pile and the hand only rebuild when their content changes. This is what
    lets CSS animations survive: a rebuild mid-animation destroys the nodes. */
 const pileKeyOf=()=>state.plays.length+"|"+state.plays.map(p=>p.seat).join(",")+"|"+(state.current?1:0);
-let pileKey="!";
 function renderPile(){
   const k=pileKeyOf();
-  if(k===pileKey)return;
-  pileKey=k;
+  if(k===ui.pileKey)return;
+  ui.pileKey=k;
   pileEl.innerHTML="";
   const shown=state.plays.slice(-2); // newest play prominent, one faded behind
   shown.forEach((p,i)=>{
@@ -726,15 +775,14 @@ function renderPile(){
 function fadePile(){
   [...pileEl.children].forEach(g=>g.classList.add("gone"));
   state.plays=[];state.animSeen=0;
-  pileKey=pileKeyOf(); // skip the next rebuild so the fade-out can play
+  ui.pileKey=pileKeyOf(); // skip the next rebuild so the fade-out can play
 }
 
 const handKeyOf=()=>state.hands[0].map(val).join(",")+"|"+[...state.sel].sort((a,b)=>a-b).join(",");
-let handKey="!";
 function renderHand(){
   const k=handKeyOf();
-  if(k===handKey)return;
-  handKey=k;
+  if(k===ui.handKey)return;
+  ui.handKey=k;
   handEl.innerHTML="";
   state.hands[0].forEach((c,i)=>{
     const d=cardEl(c);
@@ -747,7 +795,7 @@ function renderHand(){
       if(state.over)return;
       state.sel.has(i)?state.sel.delete(i):state.sel.add(i);
       setSel(state.sel.has(i));
-      handKey=handKeyOf();
+      ui.handKey=handKeyOf();
       updateButtons();
     };
     d.addEventListener("pointerdown",e=>{e.preventDefault();toggle();});
@@ -797,6 +845,9 @@ const helpOverlay=document.getElementById("helpOverlay");
 document.getElementById("btnHelp").addEventListener("click",()=>helpOverlay.classList.add("show"));
 document.getElementById("btnHelpClose").addEventListener("click",()=>helpOverlay.classList.remove("show"));
 helpOverlay.addEventListener("click",e=>{if(e.target===helpOverlay)helpOverlay.classList.remove("show")});
+document.querySelector(".table").addEventListener("pointerdown",()=>{
+  if(state.sel.size){state.sel.clear();renderHand();updateButtons();}
+});
 
 if("serviceWorker" in navigator){
   addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
