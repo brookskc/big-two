@@ -117,7 +117,7 @@
   .me{padding:6px 0 10px}
   .hand{
     display:flex;justify-content:center;padding:22px 14px 4px;min-height:104px;
-    border-radius:18px;transition:background .35s;
+    border-radius:18px;transition:background .35s, box-shadow .35s;
   }
   .hand.turn{background:radial-gradient(70% 95% at 50% 100%,rgba(214,162,62,.20),transparent 75%);box-shadow:inset 0 -1px 0 rgba(214,162,62,.35)}
   .hand .card{margin-left:-26px;transition:transform .16s ease}
@@ -541,7 +541,7 @@ function newMatch(){
 let state=null;
 /* Render bookkeeping: keys remember what each region last drew so unchanged
    regions aren't rebuilt (a rebuild kills any CSS animation mid-flight). */
-const ui={oppsKey:"!",pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null};
+const ui={tiles:null,pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null};
 
 function startHand(){
   clearTimeout(state?.timer);
@@ -558,7 +558,7 @@ function startHand(){
     hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
     sel:new Set(),seen:new Set(),plays:[],animSeen:0,timer:null
   };
-  ui.oppsKey=ui.pileKey=ui.handKey="!";
+  ui.pileKey=ui.handKey="!";
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
   setStatus(mustD
@@ -723,18 +723,42 @@ function cardEl(c){
   d.innerHTML=`<div class="cor">${RANKS[c.r]}<span>${SUITS[c.s]}</span></div><div class="pip">${SUITS[c.s]}</div>`;
   return d;
 }
-function renderOpps(){
-  const k=`${state.turn}|${state.over}|${state.hands.map(x=>x.length).join()}|${match.scores.join()}|${state.bubble?state.bubble.seat+state.bubble.text+state.bubble.kind:""}`;
-  if(k===ui.oppsKey)return;
-  ui.oppsKey=k;
+/* Opponent tiles are built once and mutated in place: toggling .active on a
+   persistent element lets the highlight fade in AND out, where a rebuild
+   would cut. Chips are keyed so their pop-and-fade survives re-renders. */
+function buildOpps(){
   oppsEl.innerHTML="";
+  ui.tiles=[];
   for(let s=1;s<=3;s++){
-    const d=document.createElement("div");
-    d.className="opp"+(state.turn===s&&!state.over?" active":"");
-    const bub=state.bubble&&state.bubble.seat===s?state.bubble:null;
-    const chip=bub?`<div class="chip ${bub.kind}">${bub.text}</div>`:"";
-    d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div><div class="oscore">${scoreFmt(match.scores[s])}</div>${chip}`;
-    oppsEl.appendChild(d);
+    const root=document.createElement("div");
+    root.className="opp";
+    const name=document.createElement("div");name.className="name";name.textContent=NAMES[s];
+    const count=document.createElement("div");count.className="count";
+    const score=document.createElement("div");score.className="oscore";
+    root.appendChild(name);root.appendChild(count);root.appendChild(score);
+    oppsEl.appendChild(root);
+    ui.tiles.push({root,count,score,chip:null,chipKey:""});
+  }
+}
+function renderOpps(){
+  if(!ui.tiles)buildOpps();
+  for(let s=1;s<=3;s++){
+    const t=ui.tiles[s-1];
+    t.root.classList.toggle("active",state.turn===s&&!state.over);
+    t.count.innerHTML=`${state.hands[s].length}<small>cards</small>`;
+    t.score.textContent=scoreFmt(match.scores[s]);
+    const b=state.bubble&&state.bubble.seat===s?state.bubble:null;
+    const key=b?b.kind+"|"+b.text:"";
+    if(key!==t.chipKey){
+      t.chipKey=key;
+      if(t.chip){t.chip.remove();t.chip=null;}
+      if(b){
+        t.chip=document.createElement("div");
+        t.chip.className="chip "+b.kind;
+        t.chip.textContent=b.text;
+        t.root.appendChild(t.chip);
+      }
+    }
   }
 }
 function bubble(seat,text,kind){
