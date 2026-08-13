@@ -52,7 +52,7 @@
   }
 
   /* opponents */
-  .opps{display:flex;justify-content:space-around;padding:4px 10px 12px;gap:8px}
+  .opps{display:flex;justify-content:space-around;padding:4px 10px 20px;gap:8px}
   .opp:first-child,.opp:last-child{transform:translateY(12px)} /* seated round the table */
   .opp{
     flex:1;max-width:120px;text-align:center;padding:8px 4px 9px;border-radius:12px;
@@ -65,7 +65,7 @@
   .opp .count small{font-size:10px;font-weight:500;color:var(--muted);margin-left:3px}
   .opp .oscore{font-size:10px;color:var(--muted);margin-top:1px;font-variant-numeric:tabular-nums}
   .opp .chip{
-    position:absolute;left:50%;bottom:-16px;transform:translateX(-50%);
+    position:absolute;left:50%;bottom:-22px;transform:translateX(-50%);z-index:2;
     font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;
     white-space:nowrap;pointer-events:none;animation:chipLife 1.7s ease-out forwards;
   }
@@ -122,6 +122,7 @@
   .hand .card{margin-left:-26px;transition:transform .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
+  .hand .card.leaving{transition:transform .28s ease-in, opacity .28s ease-in;transform:translateY(-140px) scale(.92);opacity:0;pointer-events:none}
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -540,7 +541,7 @@ function newMatch(){
 let state=null;
 /* Render bookkeeping: keys remember what each region last drew so unchanged
    regions aren't rebuilt (a rebuild kills any CSS animation mid-flight). */
-const ui={tiles:null,pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null};
+const ui={tiles:null,pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null,handTimer:null};
 
 function startHand(){
   clearTimeout(state?.timer);
@@ -557,6 +558,7 @@ function startHand(){
     hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
     sel:new Set(),seen:new Set(),plays:[],animSeen:0,timer:null
   };
+  clearTimeout(ui.handTimer);
   ui.pileKey=ui.handKey="!";
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
@@ -746,7 +748,12 @@ function renderOpps(){
     const key=b?b.text:"";
     if(key!==t.chipKey){
       t.chipKey=key;
-      if(t.chip){t.chip.remove();t.chip=null;}
+      if(t.chip){
+        const old=t.chip; // let the fade finish rather than cutting it
+        old.style.animation="none";old.style.transition="opacity .3s";old.style.opacity="0";
+        setTimeout(()=>old.remove(),320);
+        t.chip=null;
+      }
       if(b){
         t.chip=document.createElement("div");
         t.chip.className="chip passed";
@@ -808,6 +815,11 @@ const handKeyOf=()=>state.hands[0].map(val).join(",")+"|"+[...state.sel].sort((a
 function renderHand(){
   const k=handKeyOf();
   if(k===ui.handKey)return;
+  if(handEl.querySelector(".leaving")){ // let the played cards finish leaving
+    clearTimeout(ui.handTimer);
+    ui.handTimer=setTimeout(renderHand,300);
+    return;
+  }
   ui.handKey=k;
   handEl.innerHTML="";
   state.hands[0].forEach((c,i)=>{
@@ -859,6 +871,10 @@ function renderAll(){
 btnPlay.addEventListener("click",()=>{
   const combo=selectedCombo();
   if(state.turn!==0||state.over||!isLegal(combo,state.current,state.firstMove))return;
+  // Send the selected cards on their way before the hand re-lays out, so they
+  // rise off the table instead of vanishing in a rebuild.
+  [...state.sel].forEach(i=>handEl.children[i]?.classList.add("leaving"));
+  ui.handKey="!";
   applyPlay(0,combo);
 });
 btnPass.addEventListener("click",()=>{
