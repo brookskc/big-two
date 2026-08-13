@@ -122,7 +122,7 @@
   .hand .card{margin-left:-26px;transition:transform .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
-  .hand .card.leaving{transition:transform .28s ease-in, opacity .28s ease-in;transform:translateY(-140px) scale(.92);opacity:0;pointer-events:none}
+  .hand .card.leaving{transition:transform .38s cubic-bezier(.4,0,.5,1), opacity .38s ease-in;opacity:0;pointer-events:none}
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -862,20 +862,30 @@ function deselectAll(){
 /* Playing cards: take the played ones out of the layout so the hand closes
    immediately, then slide the survivors from where they were to where they
    now sit (a FLIP). Without this the gap snaps shut on the next rebuild. */
-const LEAVE_MS=300;
+const LEAVE_MS=400;
 function animateHandPlay(){
   const cards=[...handEl.children];
   if(!cards.length||typeof handEl.getBoundingClientRect!=="function")return;
   const box=handEl.getBoundingClientRect();
+  const pile=pileEl.getBoundingClientRect();
   const before=cards.map(c=>c.getBoundingClientRect());
   const going=cards.filter(c=>c.classList.contains("sel"));
-  going.forEach(c=>{ // out of the flow: the row closes up immediately
+  going.forEach(c=>{
+    // Pin each card exactly where it sits (the rect already includes its
+    // raised offset), out of the flow so the row closes up immediately.
     const r=before[cards.indexOf(c)];
     c.style.position="absolute";
     c.style.margin="0";
+    c.style.transform="none";
     c.style.left=(r.left-box.left)+"px";
     c.style.top=(r.top-box.top)+"px";
-    c.classList.add("leaving");
+    // Then send it to the middle of the table, from wherever in the hand it was.
+    const dx=(pile.left+pile.width/2)-(r.left+r.width/2);
+    const dy=(pile.top+pile.height/2)-(r.top+r.height/2);
+    raf(()=>{
+      c.classList.add("leaving");
+      c.style.transform=`translate(${dx}px,${dy}px) scale(.9)`;
+    });
   });
   cards.forEach((c,i)=>{ // survivors: start at the old spot, ease to the new one
     if(going.includes(c))return;
