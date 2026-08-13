@@ -2,6 +2,8 @@
 
 An offline, ad-free [Big Two](https://en.wikipedia.org/wiki/Big_two) card game for your phone. No accounts, no ads, no network calls, no tracking. Just cards.
 
+The code is public and free for noncommercial use. See [License](#license).
+
 Built because every Big 2 app on the App Store is buried in ads.
 
 ## Play it
@@ -78,4 +80,6 @@ This repo is meant for GitHub Pages: Settings → Pages → deploy from the `mai
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Copyright 2026 brookskc. Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md): you're welcome to read it, run it, study it, modify it, and share it for any noncommercial purpose. Commercial use requires a separate license from me.
+
+Note that source-available is not the same as open source: PolyForm restricts commercial use, which the OSI definition does not permit.
