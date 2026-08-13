@@ -1,4 +1,4 @@
-const CACHE = "big2-v15";
+const CACHE = "big2-v16";
 const ASSETS = [
   "./",
   "./index.html",

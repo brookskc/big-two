@@ -163,6 +163,9 @@
   .row .right{color:var(--muted)}
   .row.first .left{color:var(--gold);font-weight:600}
   .panel .btn{width:100%;max-width:none}
+  .confetti{position:fixed;inset:0;pointer-events:none;z-index:11;overflow:hidden}
+  .confetti span{position:absolute;top:-6vh;animation:fall linear forwards}
+  @keyframes fall{to{transform:translateY(112vh) rotate(560deg);opacity:.85}}
   .rules{text-align:left;font-size:13px;line-height:1.5;margin-bottom:18px}
   .rules p{margin:0 0 9px;color:var(--muted)}
   .rules p:last-child{margin-bottom:0}
@@ -607,7 +610,32 @@ function endGame(winner){
     return `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${right}</span></div>`;
   }).join("");
   btnAgain.textContent=done?"New match":"Next hand";
-  ovTimer=setTimeout(()=>overlay.classList.add("show"),700);
+  ovTimer=setTimeout(()=>{
+    overlay.classList.add("show");
+    if(done&&champ===0)celebrate();
+  },700);
+}
+
+/* Suit confetti for a match win. Visual randomness only — gameplay stays deterministic. */
+function celebrate(){
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+  const box=document.createElement("div");
+  box.className="confetti";
+  const suits=["♠","♥","♦","♣"];
+  const colors={"♠":"var(--paper)","♣":"var(--paper)","♥":"var(--red)","♦":"var(--red)"};
+  for(let i=0;i<44;i++){
+    const s=document.createElement("span");
+    const suit=suits[i%4];
+    s.textContent=suit;
+    s.style.color=i%7===0?"var(--gold)":colors[suit];
+    s.style.left=Math.random()*100+"vw";
+    s.style.fontSize=12+Math.random()*10+"px";
+    s.style.animationDuration=2.2+Math.random()*1.4+"s";
+    s.style.animationDelay=Math.random()*0.9+"s";
+    box.appendChild(s);
+  }
+  document.body.appendChild(box);
+  setTimeout(()=>box.remove(),4800);
 }
 
 /* ---------------- rendering ---------------- */
