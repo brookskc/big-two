@@ -147,6 +147,12 @@
     letter-spacing:.03em;padding:5px 0;text-decoration:underline;text-underline-offset:3px;
     text-decoration-color:rgba(255,255,255,.25);
   }
+  .leftrow{display:flex;align-items:center;gap:10px}
+  .snd{
+    background:none;border:1px solid var(--line);color:var(--muted);font:inherit;font-size:11px;
+    width:26px;height:26px;border-radius:50%;padding:0;line-height:1;
+  }
+  .snd.on{color:var(--gold);border-color:rgba(214,162,62,.45)}
   .seg{display:flex;border:1px solid var(--line);border-radius:99px;overflow:hidden}
   .seg button{background:none;border:none;color:var(--muted);font:inherit;font-size:10.5px;font-weight:600;padding:5px 10px}
   .seg button.on{background:rgba(214,162,62,.16);color:var(--gold)}
@@ -209,7 +215,10 @@
     <button class="btn play" id="btnPlay">Play</button>
   </div>
   <div class="footrow">
-    <button class="howto" id="btnHelp">How to play</button>
+    <div class="leftrow">
+      <button class="howto" id="btnHelp">How to play</button>
+      <button class="snd" id="btnSound" aria-label="Toggle sound"></button>
+    </div>
     <div class="seg" id="seg" role="group" aria-label="Bot difficulty">
       <button data-d="easy">Easy</button><button data-d="medium">Medium</button><button data-d="hard">Hard</button>
     </div>
@@ -634,6 +643,7 @@ function startHand(resume){
       :(leader===0?"You won the last hand. <b>Lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
       leader===0);
   }
+  if(!resume)sfx.deal();
   saveHand();
   renderAll();
   if(leader!==0)queueBot();
@@ -701,7 +711,8 @@ function queueBot(){
     const {pick,rest}=think();
     state.timer=setTimeout(()=>{
       if(state.over)return;
-      if(pick)applyPlay(seat,pick);else applyPass(seat);
+        if(pick){sfx.botPlay(pick.size);applyPlay(seat,pick);}
+      else{sfx.pass();applyPass(seat);}
     },rest);
   },PACE.PASS[0]);
 }
@@ -741,7 +752,9 @@ function endGame(winner){
   handNo.textContent=`Hand ${match.hand} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
   ui.ovTimer=setTimeout(()=>{
     overlay.classList.add("show");
-    if(done&&champ===0)celebrate();
+    if(done&&champ===0){sfx.win();celebrate();}
+    else if(winner===0)sfx.win();
+    else sfx.lose();
   },700);
 }
 
@@ -767,6 +780,83 @@ function celebrate(){
   setTimeout(()=>box.remove(),4800);
 }
 
+
+/* ---------------- sound + haptics ---------------- */
+/* Every sound is synthesized at runtime: no audio files to download, so the
+   game stays a single file and works offline. Haptics go through the native
+   bridge when wrapped (Capacitor), and the Vibration API elsewhere; iOS Safari
+   supports neither, so they're a silent bonus rather than a dependency. */
+const SOUND_STORE="big2-sound";
+const AudioCtx=typeof AudioContext!=="undefined"?AudioContext
+  :typeof webkitAudioContext!=="undefined"?webkitAudioContext:null;
+
+const audio={
+  on:(()=>{try{return localStorage.getItem(SOUND_STORE)!=="off";}catch(e){return true;}})(),
+  ctx:null,noise:null,
+  ready(){
+    if(!this.on||!AudioCtx)return null;
+    if(!this.ctx)try{this.ctx=new AudioCtx();}catch(e){return null;}
+    if(this.ctx.state==="suspended")this.ctx.resume();
+    return this.ctx;
+  },
+  // One second of white noise, reused for every card sound.
+  noiseBuf(ctx){
+    if(this.noise)return this.noise;
+    const b=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate);
+    const d=b.getChannelData(0);
+    for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    return this.noise=b;
+  }
+};
+function setSound(on){
+  audio.on=on;
+  try{localStorage.setItem(SOUND_STORE,on?"on":"off");}catch(e){}
+  renderSound();
+  if(on)tick(900,.03,.05); // confirm it's back
+}
+
+/* A card landing: a band of noise with a fast decay. */
+function snap(vol,freq,dur,delay){
+  const ctx=audio.ready();if(!ctx)return;
+  const t=ctx.currentTime+(delay||0);
+  const src=ctx.createBufferSource();src.buffer=audio.noiseBuf(ctx);
+  src.playbackRate.value=.8+Math.random()*.4;
+  const bp=ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=freq;bp.Q.value=1.1;
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(vol,t);
+  g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  src.connect(bp);bp.connect(g);g.connect(ctx.destination);
+  src.start(t);src.stop(t+dur);
+}
+/* A small pitched blip, for taps and confirmations. */
+function tick(freq,dur,vol,delay,type){
+  const ctx=audio.ready();if(!ctx)return;
+  const t=ctx.currentTime+(delay||0);
+  const o=ctx.createOscillator();o.type=type||"sine";o.frequency.value=freq;
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(vol,t+.008);
+  g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g);g.connect(ctx.destination);
+  o.start(t);o.stop(t+dur);
+}
+const sfx={
+  select(){tick(1250,.05,.05);haptic(8);},
+  deselect(){tick(820,.05,.04);},
+  play(n){for(let i=0;i<n;i++)snap(.22,2400,.07,i*.045);haptic(12);},
+  botPlay(n){for(let i=0;i<n;i++)snap(.13,2100,.07,i*.045);},
+  pass(){tick(190,.12,.06,0,"triangle");},
+  deal(){for(let i=0;i<9;i++)snap(.09,1500+Math.random()*1400,.05,i*.045);},
+  win(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>tick(f,.5,.13,i*.1,"triangle"));haptic([14,60,14,60,24]);},
+  lose(){tick(300,.28,.07,0,"triangle");}
+};
+function haptic(pattern){
+  const cap=typeof window!=="undefined"&&window.Capacitor;
+  const plugin=cap&&cap.Plugins&&cap.Plugins.Haptics;
+  if(plugin&&plugin.impact){plugin.impact({style:"Light"}).catch(()=>{});return;}
+  if(typeof navigator!=="undefined"&&navigator.vibrate)navigator.vibrate(pattern);
+}
+
 /* ---------------- rendering ---------------- */
 const oppsEl=document.getElementById("opps");
 const pileEl=document.getElementById("pile");
@@ -781,7 +871,13 @@ const ovRows=document.getElementById("ovRows");
 const handNo=document.getElementById("handNo");
 const btnAgain=document.getElementById("btnAgain");
 const segEl=document.getElementById("seg");
+const btnSound=document.getElementById("btnSound");
 
+function renderSound(){
+  btnSound.textContent=audio.on?"♪":"✕";
+  btnSound.classList.toggle("on",audio.on);
+  btnSound.setAttribute("aria-pressed",audio.on);
+}
 function renderDifficulty(){
   [...segEl.children].forEach(b=>{
     const on=b.dataset.d===difficulty;
@@ -912,6 +1008,7 @@ function renderHand(){
     const toggle=()=>{
       if(state.over)return;
       state.sel.has(v)?state.sel.delete(v):state.sel.add(v);
+      state.sel.has(v)?sfx.select():sfx.deselect();
       setSel(state.sel.has(v));
       ui.handKey=handKeyOf();
       updateButtons();
@@ -990,12 +1087,14 @@ function renderAll(){
 btnPlay.addEventListener("click",()=>{
   const combo=selectedCombo();
   if(state.turn!==0||state.over||!isLegal(combo,state.current,state.firstMove))return;
+  sfx.play(combo.size);
   animateHandPlay(); // reads the raised cards straight off the DOM
   ui.handKey="!";
   applyPlay(0,combo);
 });
 btnPass.addEventListener("click",()=>{
   if(state.turn!==0||state.over||!state.current)return;
+  sfx.pass();
   deselectAll();
   applyPass(0);
 });
@@ -1010,6 +1109,9 @@ segEl.addEventListener("click",e=>{
   const b=e.target.closest("button");
   if(b&&b.dataset.d)setDifficulty(b.dataset.d);
 });
+btnSound.addEventListener("click",()=>setSound(!audio.on));
+// Browsers only allow audio after a gesture; the first tap anywhere unlocks it.
+addEventListener("pointerdown",()=>audio.ready(),{once:true});
 const helpOverlay=document.getElementById("helpOverlay");
 document.getElementById("btnHelp").addEventListener("click",()=>helpOverlay.classList.add("show"));
 document.getElementById("btnHelpClose").addEventListener("click",()=>helpOverlay.classList.remove("show"));
@@ -1021,6 +1123,7 @@ if("serviceWorker" in navigator){
 }
 
 renderDifficulty();
+renderSound();
 startHand(loadHand()); // resume the hand in progress, if there is one
 </script>
 </body>

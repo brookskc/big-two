@@ -69,7 +69,8 @@ const G = eval(script + `
   classify, beats, isLegal, unseenHigher, botChoose,
   newMatch, startHand, applyPlay, applyPass,
   loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, animateHandPlay,
-  saveHand, loadHand, botChoose: botChoose,
+  saveHand, loadHand, botChoose: botChoose, setSound, sfx,
+  get audio(){ return audio; },
   get match(){ return match; },
   get state(){ return state; },
   set state(v){ state = v; },
@@ -225,6 +226,22 @@ console.log("hand persistence");
   check("a snapshot from another hand is rejected", G.loadHand() === null);
   global.localStorage.setItem = () => {};
   global.localStorage.getItem = () => null;
+}
+
+// --- sound (must degrade silently where there's no audio engine) ---
+console.log("sound");
+{
+  let pref = null;
+  global.localStorage.setItem = (k, v) => { if (k === "big2-sound") pref = v; };
+  check("sound is on by default", G.audio.on === true);
+  G.setSound(false);
+  check("muting persists", pref === "off" && G.audio.on === false);
+  G.setSound(true);
+  check("unmuting persists", pref === "on" && G.audio.on === true);
+  let threw = false;
+  try { G.sfx.play(2); G.sfx.deal(); G.sfx.win(); G.sfx.pass(); } catch (e) { threw = true; }
+  check("every sound is a no-op without an audio engine", !threw);
+  global.localStorage.setItem = () => {};
 }
 
 // --- persistence guards ------------------------------------------------------------
