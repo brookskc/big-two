@@ -54,8 +54,6 @@ The app also keeps a lifetime record of matches won, shown on the end-of-match s
 
 Every sound is synthesized at runtime with the Web Audio API — card snaps and the shuffle are filtered noise bursts, the win chime is a short arpeggio — so there are no audio files to download and the game stays a single self-contained file. The ♪ button mutes, and the choice persists.
 
-Haptics fire through the Capacitor Haptics plugin when the app is wrapped natively, and through the Vibration API elsewhere. iOS Safari supports neither, so they're a bonus on supported devices rather than something the game depends on.
-
 ## Tests
 
 ```bash

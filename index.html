@@ -783,9 +783,7 @@ function celebrate(){
 
 /* ---------------- sound + haptics ---------------- */
 /* Every sound is synthesized at runtime: no audio files to download, so the
-   game stays a single file and works offline. Haptics go through the native
-   bridge when wrapped (Capacitor), and the Vibration API elsewhere; iOS Safari
-   supports neither, so they're a silent bonus rather than a dependency. */
+   game stays a single file and works offline. */
 const SOUND_STORE="big2-sound";
 const AudioCtx=typeof AudioContext!=="undefined"?AudioContext
   :typeof webkitAudioContext!=="undefined"?webkitAudioContext:null;
@@ -841,21 +839,15 @@ function tick(freq,dur,vol,delay,type){
   o.start(t);o.stop(t+dur);
 }
 const sfx={
-  select(){tick(1250,.05,.05);haptic(8);},
+  select(){tick(1250,.05,.05);},
   deselect(){tick(820,.05,.04);},
-  play(n){for(let i=0;i<n;i++)snap(.22,2400,.07,i*.045);haptic(12);},
+  play(n){for(let i=0;i<n;i++)snap(.22,2400,.07,i*.045);},
   botPlay(n){for(let i=0;i<n;i++)snap(.13,2100,.07,i*.045);},
   pass(){tick(190,.12,.06,0,"triangle");},
   deal(){for(let i=0;i<9;i++)snap(.09,1500+Math.random()*1400,.05,i*.045);},
-  win(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>tick(f,.5,.13,i*.1,"triangle"));haptic([14,60,14,60,24]);},
+  win(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>tick(f,.5,.13,i*.1,"triangle"));},
   lose(){tick(300,.28,.07,0,"triangle");}
 };
-function haptic(pattern){
-  const cap=typeof window!=="undefined"&&window.Capacitor;
-  const plugin=cap&&cap.Plugins&&cap.Plugins.Haptics;
-  if(plugin&&plugin.impact){plugin.impact({style:"Light"}).catch(()=>{});return;}
-  if(typeof navigator!=="undefined"&&navigator.vibrate)navigator.vibrate(pattern);
-}
 
 /* ---------------- rendering ---------------- */
 const oppsEl=document.getElementById("opps");
