@@ -374,6 +374,7 @@ function startHand(){
     firstMove:mustD,over:false,sel:new Set(),plays:[],animSeen:0,timer:null
   };
   overlay.classList.remove("show");
+  pileKey="!";
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN}`;
   setStatus(mustD
     ?(leader===0?"You have the <b>3♦</b> — lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
@@ -508,7 +509,12 @@ function bubble(seat,text){
   state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
 }
 let pileGroups=[];
+const pileKeyOf=()=>state.plays.length+"|"+state.plays.map(p=>p.seat).join(",")+"|"+(state.current?1:0);
+let pileKey="!";
 function renderPile(){
+  const k=pileKeyOf();
+  if(k===pileKey)return; // nothing changed — don't rebuild and kill the animation
+  pileKey=k;
   // show last play prominently, one faded behind
   pileEl.innerHTML="";
   const shown=state.plays.slice(-2);
@@ -527,6 +533,7 @@ function renderPile(){
 function fadePile(){
   [...pileEl.children].forEach(g=>g.classList.add("gone"));
   state.plays=[];state.animSeen=0;
+  pileKey=pileKeyOf(); // let the fade-out play instead of instantly wiping
 }
 function renderHand(){
   handEl.innerHTML="";
