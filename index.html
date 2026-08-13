@@ -81,7 +81,7 @@
   /* table / pile */
   .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
   .pile{position:relative;height:110px;width:100%;display:flex;align-items:center;justify-content:center}
-  .play-group{position:absolute;display:flex;transition:opacity .35s, transform .35s}
+  .play-group{position:absolute;display:flex;transition:opacity .5s ease, transform .35s, filter .5s ease}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
   .play-group.fly0{animation:fly0 .42s cubic-bezier(.2,.8,.3,1)}
@@ -753,10 +753,14 @@ function renderPile(){
   ui.pileKey=k;
   pileEl.innerHTML="";
   const shown=state.plays.slice(-2); // newest play prominent, one faded behind
+  const raf=typeof requestAnimationFrame==="function"?requestAnimationFrame:(f)=>setTimeout(f,0);
   shown.forEach((p,i)=>{
     const g=document.createElement("div");
     const last=i===shown.length-1;
-    g.className="play-group"+(last&&state.current?"":" old");
+    g.className="play-group";
+    // Dim the previous play a frame after insertion so the fade transitions
+    // instead of cutting — elements created with the class render dark instantly.
+    if(!(last&&state.current))raf(()=>g.classList.add("old"));
     if(last&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
     const rot=((p.seat*47)%5)-2; // whisper of a group tilt
     g.style.transform=`rotate(${rot}deg) translateY(${last?0:-6}px)`;
