@@ -69,6 +69,7 @@ const G = eval(script + `
   classify, beats, isLegal, unseenHigher, botChoose,
   newMatch, startHand, applyPlay, applyPass,
   loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, animateHandPlay,
+  saveHand, loadHand, botChoose: botChoose,
   get match(){ return match; },
   get state(){ return state; },
   set state(v){ state = v; },
@@ -180,6 +181,50 @@ G.newMatch();
   check("renderHand leaves the departing card alone",
     handEl.children.length === before && !!handEl.querySelector(".leaving"));
   global.setTimeout = realTimeout;
+}
+
+// --- mid-hand persistence (a suspended app must not lose the hand) ---
+console.log("hand persistence");
+{
+  let saved = null;
+  global.localStorage.setItem = (k, v) => { if (k === "big2-hand") saved = v; };
+  global.localStorage.getItem = (k) => (k === "big2-hand" ? saved : null);
+  G.newMatch();
+  G.difficulty = "medium";
+  // play a few turns so there's a real position to restore
+  for (let i = 0; i < 6; i++) {
+    if (G.state.over) break;
+    const s = G.state.turn, p = G.botChoose(s);
+    if (p) G.applyPlay(s, p); else G.applyPass(s);
+  }
+  const want = {
+    hands: G.state.hands.map(h => h.map(G.val)),
+    turn: G.state.turn,
+    owner: G.state.owner,
+    current: G.state.current ? G.state.current.cards.map(G.val) : null,
+    plays: G.state.plays.length,
+    seen: [...G.state.seen].sort((a, b) => a - b)
+  };
+  const restored = G.loadHand();
+  check("a hand in progress can be restored", !!restored);
+  if (restored) {
+    const got = {
+      hands: restored.hands.map(h => h.map(G.val)),
+      turn: restored.turn,
+      owner: restored.owner,
+      current: restored.current ? restored.current.cards.map(G.val) : null,
+      plays: restored.plays.length,
+      seen: [...restored.seen].sort((a, b) => a - b)
+    };
+    check("restores the exact table position", JSON.stringify(got) === JSON.stringify(want));
+  } else check("restores the exact table position", false);
+
+  saved = JSON.stringify({ atHand: 0, hands: [[{ r: 99, s: 0 }], [], [], []], turn: 0, owner: -1, current: null, seen: [], plays: [] });
+  check("a corrupt snapshot is rejected", G.loadHand() === null);
+  saved = JSON.stringify({ atHand: 99, hands: [[{ r: 0, s: 0 }], [], [], []], turn: 0, owner: -1, current: null, seen: [], plays: [] });
+  check("a snapshot from another hand is rejected", G.loadHand() === null);
+  global.localStorage.setItem = () => {};
+  global.localStorage.getItem = () => null;
 }
 
 // --- persistence guards ------------------------------------------------------------

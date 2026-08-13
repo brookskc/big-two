@@ -539,9 +539,57 @@ function loadCareer(){
   }catch(e){return null;}
 }
 let career=loadCareer()||{matches:0,won:0};
+
+/* Hand snapshot: the table itself, saved after every play so closing the tab
+   or having iOS discard the app doesn't cost the hand in progress. The bots'
+   cards are in here — harmless offline, and the alternative is losing state. */
+const HAND_STORE="big2-hand";
+const isCard=c=>c&&Number.isInteger(c.r)&&c.r>=0&&c.r<13&&Number.isInteger(c.s)&&c.s>=0&&c.s<4;
+function saveHand(){
+  if(!state||state.over)return clearSavedHand();
+  try{
+    localStorage.setItem(HAND_STORE,JSON.stringify({
+      atHand:match.hand,               // ties the snapshot to its place in the match
+      hands:state.hands,
+      turn:state.turn,
+      owner:state.owner,
+      current:state.current?state.current.cards:null,
+      firstMove:state.firstMove,
+      seen:[...state.seen],
+      plays:state.plays.map(p=>({seat:p.seat,cards:p.combo.cards}))
+    }));
+  }catch(e){}
+}
+function clearSavedHand(){try{localStorage.removeItem(HAND_STORE);}catch(e){}}
+function loadHand(){
+  try{
+    const s=JSON.parse(localStorage.getItem(HAND_STORE));
+    const cardsOk=a=>Array.isArray(a)&&a.every(isCard);
+    const ok=s
+      &&s.atHand===match.hand
+      &&Array.isArray(s.hands)&&s.hands.length===4&&s.hands.every(cardsOk)
+      &&s.hands.reduce((n,x)=>n+x.length,0)>0
+      &&Number.isInteger(s.turn)&&s.turn>=0&&s.turn<4
+      &&Number.isInteger(s.owner)&&s.owner>=-1&&s.owner<4
+      &&(s.current===null||cardsOk(s.current))
+      &&Array.isArray(s.seen)&&s.seen.every(Number.isInteger)
+      &&Array.isArray(s.plays)&&s.plays.every(p=>p&&Number.isInteger(p.seat)&&cardsOk(p.cards));
+    if(!ok)return null;
+    const current=s.current?classify(s.current):null;
+    if(s.current&&!current)return null; // a play that isn't a legal shape: distrust the whole snapshot
+    const plays=[];
+    for(const p of s.plays){
+      const combo=classify(p.cards);
+      if(!combo)return null;
+      plays.push({seat:p.seat,combo});
+    }
+    return{hands:s.hands,turn:s.turn,owner:s.owner,current,firstMove:!!s.firstMove,seen:new Set(s.seen),plays};
+  }catch(e){return null;}
+}
 function saveCareer(){try{localStorage.setItem(CAREER,JSON.stringify(career));}catch(e){}}
 function newMatch(){
   match=freshMatch();
+  clearSavedHand();
   saveMatch();
   startHand();
 }
@@ -553,33 +601,48 @@ let state=null;
 const ui={tiles:null,pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null,handTimer:null};
 const raf=typeof requestAnimationFrame==="function"?requestAnimationFrame:f=>setTimeout(f,16);
 
-function startHand(){
+function startHand(resume){
   clearTimeout(state?.timer);
   clearTimeout(ui.ovTimer);
-  const d=deck();
-  const hands=[[],[],[],[]];
-  d.forEach((c,i)=>hands[i%4].push(c));
-  hands.forEach(h=>h.sort((a,b)=>val(a)-val(b)));
-  // 3♦ holder opens a set; after that, each hand's winner leads the next.
-  let leader,mustD;
-  if(match.lastWinner>=0){leader=match.lastWinner;mustD=false;}
-  else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
+  let hands,leader,mustD,rest;
+  if(resume){
+    ({hands,turn:leader,firstMove:mustD,...rest}=resume);
+  }else{
+    const d=deck();
+    hands=[[],[],[],[]];
+    d.forEach((c,i)=>hands[i%4].push(c));
+    hands.forEach(h=>h.sort((a,b)=>val(a)-val(b)));
+    // 3♦ holder opens a match; after that, each hand's winner leads the next.
+    if(match.lastWinner>=0){leader=match.lastWinner;mustD=false;}
+    else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
+  }
   state={
     hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
-    sel:new Set(),seen:new Set(),plays:[],animSeen:0,bubble:null,timer:null
+    sel:new Set(),seen:new Set(),plays:[],animSeen:0,bubble:null,timer:null,
+    ...(resume?{current:rest.current,owner:rest.owner,seen:rest.seen,plays:rest.plays}:{})
   };
   clearTimeout(ui.handTimer);clearTimeout(ui.bubbleTimer);
   ui.pileKey=ui.handKey="!";
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
-  setStatus(mustD
-    ?(leader===0?"You have the <b>3♦</b>. Lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
-    :(leader===0?"You won the last hand. <b>Lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
-    leader===0);
+  if(resume){
+    state.animSeen=state.plays.length; // resumed cards are already on the table
+    promptStatus();
+  }else{
+    setStatus(mustD
+      ?(leader===0?"You have the <b>3♦</b>. Lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
+      :(leader===0?"You won the last hand. <b>Lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
+      leader===0);
+  }
+  saveHand();
   renderAll();
   if(leader!==0)queueBot();
 }
 
+function promptStatus(){
+  if(state.turn===0)setStatus(state.current?`Your turn: beat the <b>${describe(state.current)}</b>`:"Your turn: <b>lead anything</b>",true);
+  else setStatus(`<b>${NAMES[state.turn]}</b> is thinking…`);
+}
 function setStatus(html,mine){
   statusEl.innerHTML=html;
   statusEl.classList.toggle("mine",!!mine);
@@ -614,11 +677,10 @@ function advance(){
     state.current=null;state.owner=-1;
     fadePile();
     setStatus(state.turn===0?"Everyone passed. <b>You lead</b>":`Table cleared. <b>${NAMES[state.turn]}</b> leads`,state.turn===0);
-  }else if(state.turn===0){
-    setStatus(state.current?`Your turn: beat the <b>${describe(state.current)}</b>`:"Your turn: <b>lead anything</b>",true);
   }else{
-    setStatus(`<b>${NAMES[state.turn]}</b> is thinking…`);
+    promptStatus();
   }
+  saveHand();
   renderAll();
   if(state.turn!==0)queueBot();
 }
@@ -655,6 +717,7 @@ function endGame(winner){
   const delta=pens.map((p,i)=>i===winner?pens.reduce((a,b)=>a+b,0):-p);
   delta.forEach((d,i)=>match.scores[i]+=d);
   const done=match.hand>=MATCH_LEN;
+  clearSavedHand();
   done?clearSavedMatch():saveMatch();
   // Tiebreak chain: highest score, then most hands won, then most recent hand won.
   const order=[0,1,2,3].sort((a,b)=>
@@ -958,7 +1021,7 @@ if("serviceWorker" in navigator){
 }
 
 renderDifficulty();
-startHand();
+startHand(loadHand()); // resume the hand in progress, if there is one
 </script>
 </body>
 </html>

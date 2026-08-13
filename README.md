@@ -30,7 +30,7 @@ Games are played as **matches of 10 hands** with traditional settlement scoring:
 | 10–12 | 3 points per card |
 | 13 | 4 points per card |
 
-Highest total after 10 hands wins the match. Ties break by most hands won, then most recent hand won (Big 2 has no official governing rules; this is the common convention among digital implementations). The winner of each hand leads the next one; the 3♦ rule applies only to a set's opening hand. Set scores persist in localStorage, so you can close the app mid-match and pick it back up.
+Highest total after 10 hands wins the match. Ties break by most hands won, then most recent hand won (Big 2 has no official governing rules; this is the common convention among digital implementations). The winner of each hand leads the next one; the 3♦ rule applies only to a match's opening hand. Scores and the hand in progress both persist in localStorage, so you can navigate away, or have the app suspended mid-hand, and come back to the exact table position.
 
 ## Bots
 
@@ -56,7 +56,7 @@ The app also keeps a lifetime record of matches won, shown on the end-of-match s
 node test.js
 ```
 
-No dependencies. The suite extracts the game's script straight out of `index.html`, runs it in Node with a stub DOM and a seeded RNG, and asserts the rules engine (hand classification, comparison, the 3♦ rule), the card counting, zero-sum settlement over full matches on every difficulty, bot quality (hard must outscore medium and easy over 30 seat-mixed matches), and the persistence guards. Deterministic: every run plays the same cards.
+No dependencies. The suite extracts the game's script straight out of `index.html`, runs it in Node with a stub DOM and a seeded RNG, and asserts the rules engine (hand classification, comparison, the 3♦ rule), the card counting, zero-sum settlement over full matches on every difficulty, bot quality (hard must outscore medium and easy over 30 seat-mixed matches), the mid-hand snapshot round-trip, and the persistence guards. Deterministic: every run plays the same cards.
 
 ## Develop
 
