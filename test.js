@@ -11,7 +11,7 @@ const script = html.match(/<script>\n"use strict";([\s\S]*?)<\/script>/)[1];
 
 const el = () => ({
   innerHTML: "", textContent: "",
-  classList: { add(){}, remove(){}, toggle(){} },
+  classList: { add(){}, remove(){}, toggle(){}, contains: () => false },
   setAttribute(){}, addEventListener(){}, appendChild(){}, querySelector: () => null,
   style: { setProperty(){} }, children: [], dataset: {}, remove(){}
 });
@@ -41,7 +41,7 @@ const G = eval(script + `
 ;({
   classify, beats, isLegal, unseenHigher, botChoose,
   newMatch, startHand, applyPlay, applyPass,
-  loadMatch, loadCareer, MATCH_LEN,
+  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val,
   get match(){ return match; },
   get state(){ return state; },
   set state(v){ state = v; },
@@ -118,6 +118,24 @@ const avg = { easy: totals[0] / 30, medium: (totals[1] + totals[3]) / 60, hard: 
 console.log(`  avg/match  easy ${avg.easy.toFixed(1)}  medium ${avg.medium.toFixed(1)}  hard ${avg.hard.toFixed(1)}`);
 check("hard outscores medium", avg.hard > avg.medium);
 check("hard outscores easy", avg.hard > avg.easy);
+
+// --- selection identity (regression: selection must survive a stale hand layout) ---
+console.log("selection");
+G.newMatch();
+{
+  const hand = G.state.hands[0];
+  const target = hand[hand.length - 1];       // last card: the most index-fragile one
+  G.state.sel.add(G.val(target));
+  hand.splice(0, 1);                          // drop the first card: every index shifts down
+  const combo = G.selectedCombo();
+  check("selection tracks the card, not its position",
+    !!combo && combo.cards.length === 1 && G.val(combo.cards[0]) === G.val(target));
+  G.state.sel.clear();
+  G.state.sel.add(G.val(hand[0]));
+  hand.splice(0, 1);                          // now remove the selected card itself
+  check("a card that leaves the hand drops out of the selection", G.selectedCombo() === null);
+  G.state.sel.clear();
+}
 
 // --- persistence guards ------------------------------------------------------------
 console.log("persistence");

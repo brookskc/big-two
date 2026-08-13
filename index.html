@@ -557,9 +557,9 @@ function startHand(){
   else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
   state={
     hands,turn:leader,current:null,owner:-1,firstMove:mustD,over:false,
-    sel:new Set(),seen:new Set(),plays:[],animSeen:0,timer:null
+    sel:new Set(),seen:new Set(),plays:[],animSeen:0,bubble:null,timer:null
   };
-  clearTimeout(ui.handTimer);
+  clearTimeout(ui.handTimer);clearTimeout(ui.bubbleTimer);
   ui.pileKey=ui.handKey="!";
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
@@ -613,19 +613,26 @@ function advance(){
   renderAll();
   if(state.turn!==0)queueBot();
 }
+/* Pace by information: a pass needs little reading time, a five-card hand
+   earns a beat. Thinking happens at the end of the pause, never at the start,
+   so a slow evaluation can't stutter the incoming play's animation. */
+const PACE={PASS:[1000,300],SMALL:[1400,500],FIVE:[2000,500]};
 function queueBot(){
   clearTimeout(state.timer);
   const seat=state.turn;
-  const pick=botChoose(seat);
-  // Pace by information: a pass needs little reading time, a five-card hand earns a beat.
-  const PACE={PASS:[1000,300],SMALL:[1400,500],FIVE:[2000,500]};
-  const [base,jitter]=!pick?PACE.PASS:pick.size===5?PACE.FIVE:PACE.SMALL;
-  const delay=base+Math.random()*jitter;
+  const think=()=>{
+    const pick=botChoose(seat);
+    const [base,jitter]=!pick?PACE.PASS:pick.size===5?PACE.FIVE:PACE.SMALL;
+    return {pick,rest:Math.max(0,base-PACE.PASS[0]+Math.random()*jitter)};
+  };
   state.timer=setTimeout(()=>{
     if(state.over)return;
-    if(pick)applyPlay(seat,pick);
-    else applyPass(seat);
-  },delay);
+    const {pick,rest}=think();
+    state.timer=setTimeout(()=>{
+      if(state.over)return;
+      if(pick)applyPlay(seat,pick);else applyPass(seat);
+    },rest);
+  },PACE.PASS[0]);
 }
 function endGame(winner){
   state.over=true;
@@ -811,28 +818,27 @@ function fadePile(){
   ui.pileKey=pileKeyOf(); // skip the next rebuild so the fade-out can play
 }
 
+/* state.sel holds card VALUES, not indices: a stale DOM position can never
+   select the wrong card, and the hand can rebuild whenever it likes. */
 const handKeyOf=()=>state.hands[0].map(val).join(",")+"|"+[...state.sel].sort((a,b)=>a-b).join(",");
 function renderHand(){
   const k=handKeyOf();
   if(k===ui.handKey)return;
-  if(handEl.querySelector(".leaving")){ // let the played cards finish leaving
-    clearTimeout(ui.handTimer);
-    ui.handTimer=setTimeout(renderHand,300);
-    return;
-  }
+  if(handEl.querySelector(".leaving"))return; // mid-exit; animateHandPlay rebuilds after
   ui.handKey=k;
   handEl.innerHTML="";
-  state.hands[0].forEach((c,i)=>{
+  state.hands[0].forEach(c=>{
+    const v=val(c);
     const d=cardEl(c);
     d.setAttribute("role","button");
     d.setAttribute("tabindex","0");
     d.setAttribute("aria-label",ariaName(c));
     const setSel=on=>{d.classList.toggle("sel",on);d.setAttribute("aria-pressed",on);};
-    setSel(state.sel.has(i));
+    setSel(state.sel.has(v));
     const toggle=()=>{
       if(state.over)return;
-      state.sel.has(i)?state.sel.delete(i):state.sel.add(i);
-      setSel(state.sel.has(i));
+      state.sel.has(v)?state.sel.delete(v):state.sel.add(v);
+      setSel(state.sel.has(v));
       ui.handKey=handKeyOf();
       updateButtons();
     };
@@ -856,31 +862,35 @@ function deselectAll(){
 /* Playing cards: take the played ones out of the layout so the hand closes
    immediately, then slide the survivors from where they were to where they
    now sit (a FLIP). Without this the gap snaps shut on the next rebuild. */
-function animateHandPlay(indices){
+const LEAVE_MS=300;
+function animateHandPlay(){
   const cards=[...handEl.children];
   if(!cards.length||typeof handEl.getBoundingClientRect!=="function")return;
   const box=handEl.getBoundingClientRect();
   const before=cards.map(c=>c.getBoundingClientRect());
-  const leaving=new Set(indices);
-  cards.forEach((c,i)=>{
-    if(!leaving.has(i))return;
+  const going=cards.filter(c=>c.classList.contains("sel"));
+  going.forEach(c=>{ // out of the flow: the row closes up immediately
+    const r=before[cards.indexOf(c)];
     c.style.position="absolute";
     c.style.margin="0";
-    c.style.left=(before[i].left-box.left)+"px";
-    c.style.top=(before[i].top-box.top)+"px";
+    c.style.left=(r.left-box.left)+"px";
+    c.style.top=(r.top-box.top)+"px";
     c.classList.add("leaving");
   });
   cards.forEach((c,i)=>{ // survivors: start at the old spot, ease to the new one
-    if(leaving.has(i))return;
+    if(going.includes(c))return;
     const dx=before[i].left-c.getBoundingClientRect().left;
     if(!dx)return;
     c.style.transition="none";
     c.style.transform=`translateX(${dx}px)`;
     raf(()=>{c.style.transition="transform .3s ease";c.style.transform="";});
   });
+  // Retire the departed once they've gone, then let the hand rebuild.
+  clearTimeout(ui.handTimer);
+  ui.handTimer=setTimeout(()=>{going.forEach(c=>c.remove());renderHand();},LEAVE_MS);
 }
 function selectedCombo(){
-  const cards=[...state.sel].map(i=>state.hands[0][i]);
+  const cards=state.hands[0].filter(c=>state.sel.has(val(c)));
   return cards.length?classify(cards):null;
 }
 function updateButtons(){
@@ -897,7 +907,7 @@ function renderAll(){
 btnPlay.addEventListener("click",()=>{
   const combo=selectedCombo();
   if(state.turn!==0||state.over||!isLegal(combo,state.current,state.firstMove))return;
-  animateHandPlay([...state.sel]);
+  animateHandPlay(); // reads the raised cards straight off the DOM
   ui.handKey="!";
   applyPlay(0,combo);
 });
