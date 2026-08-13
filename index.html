@@ -61,6 +61,7 @@
   .opp.active .name{color:var(--gold)}
   .opp .count{font-family:ui-rounded,-apple-system,sans-serif;font-weight:700;font-size:19px}
   .opp .count small{font-size:10px;font-weight:500;color:var(--muted);margin-left:3px}
+  .opp .oscore{font-size:10px;color:var(--muted);margin-top:1px;font-variant-numeric:tabular-nums}
   .opp .chip{
     position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);
     font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;
@@ -78,6 +79,10 @@
   /* table / pile */
   .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
   .pile{position:relative;height:110px;width:100%;display:flex;align-items:center;justify-content:center}
+  .pile::before{ /* the printed ring on the felt */
+    content:"";position:absolute;width:min(76vw,300px);height:104px;
+    border:1px solid rgba(214,162,62,.13);border-radius:50%;pointer-events:none;
+  }
   .play-group{position:absolute;display:flex;transition:opacity .35s, transform .35s}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
@@ -114,7 +119,9 @@
   .me{padding:6px 0 10px}
   .hand{
     display:flex;justify-content:center;padding:22px 14px 4px;min-height:104px;
+    border-radius:18px;transition:background .35s;
   }
+  .hand.turn{background:radial-gradient(60% 85% at 50% 100%,rgba(214,162,62,.10),transparent 72%)}
   .hand .card{margin-left:-26px;transition:transform .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
@@ -166,7 +173,7 @@
 
 <header>
   <div class="brand"><span class="zh">大老二</span>Big Two</div>
-  <div class="hright"><span class="handno" id="handNo"></span><button class="newgame" id="btnNew">New set</button></div>
+  <div class="hright"><span class="handno" id="handNo"></span><button class="newgame" id="btnNew">New match</button></div>
 </header>
 
 <div class="opps" id="opps"></div>
@@ -440,6 +447,8 @@ const MATCH_LEN=10;
 const STORE="big2-match-v2"; // v2: settlement scoring (old saves are penalty-style)
 // HK convention: 1x per card left, 2x at 8+, 3x at 10+, 4x for a full 13.
 const penalty=n=>n===0?0:n*(n>=13?4:n>=10?3:n>=8?2:1);
+const signed=n=>(n<0?"−":"+")+Math.abs(n);
+const scoreFmt=n=>n>0?"+"+n:n<0?"−"+(-n):"0";
 
 const intArray4=a=>Array.isArray(a)&&a.length===4&&a.every(Number.isInteger);
 function loadMatch(){
@@ -482,7 +491,7 @@ function startHand(){
   };
   pileKey=handKey="!";
   overlay.classList.remove("show");
-  handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN}`;
+  handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
   setStatus(mustD
     ?(leader===0?"You have the <b>3♦</b>. Lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
     :(leader===0?"You won the last hand. <b>Lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
@@ -561,21 +570,19 @@ function endGame(winner){
     match.scores[b]-match.scores[a]||match.wins[b]-match.wins[a]||match.lastWon[b]-match.lastWon[a]);
   const champ=order[0];
   ovTitle.textContent=done
-    ?(champ===0?"You win the set!":`${NAMES[champ]} wins the set`)
+    ?(champ===0?"You win the match!":`${NAMES[champ]} wins the match`)
     :(winner===0?"You win the hand!":`${NAMES[winner]} wins the hand`);
   ovTitle.classList.toggle("win",done?champ===0:winner===0);
   ovSub.textContent=done
     ?`Final after ${MATCH_LEN} hands · highest score wins`
     :`Hand ${match.hand} of ${MATCH_LEN} · this hand · running total`;
-  const signed=n=>(n<0?"−":"+")+Math.abs(n);
-  const total=n=>n<0?"−"+(-n):String(n);
   ovRows.innerHTML=order.map((s,i)=>{
     const right=done
-      ?`${total(match.scores[s])} pts · ${match.wins[s]} won`
-      :`${signed(delta[s])} · ${total(match.scores[s])}`;
+      ?`${scoreFmt(match.scores[s])} pts · ${match.wins[s]} won`
+      :`${signed(delta[s])} · ${scoreFmt(match.scores[s])}`;
     return `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${right}</span></div>`;
   }).join("");
-  btnAgain.textContent=done?"New set":"Next hand";
+  btnAgain.textContent=done?"New match":"Next hand";
   ovTimer=setTimeout(()=>overlay.classList.add("show"),700);
 }
 
@@ -619,7 +626,7 @@ function renderOpps(){
     d.className="opp"+(state.turn===s&&!state.over?" active":"");
     const bub=state.bubble&&state.bubble.seat===s?state.bubble:null;
     const chip=bub?`<div class="chip ${bub.kind}">${bub.text}</div>`:"";
-    d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div>${chip}`;
+    d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div><div class="oscore">${scoreFmt(match.scores[s])}</div>${chip}`;
     oppsEl.appendChild(d);
   }
 }
@@ -697,6 +704,7 @@ function updateButtons(){
 }
 function renderAll(){
   renderOpps();renderPile();renderHand();updateButtons();
+  handEl.classList.toggle("turn",state.turn===0&&!state.over);
 }
 
 /* ---------------- input + boot ---------------- */
@@ -712,7 +720,7 @@ btnPass.addEventListener("click",()=>{
 });
 document.getElementById("btnNew").addEventListener("click",()=>{
   const fresh=match.hand===0&&match.scores.every(s=>s===0);
-  if(fresh||confirm("Start a new set? Current scores will reset."))newMatch();
+  if(fresh||confirm("Start a new match? Current scores will reset."))newMatch();
 });
 btnAgain.addEventListener("click",()=>{
   if(match.hand>=MATCH_LEN)newMatch();else startHand();

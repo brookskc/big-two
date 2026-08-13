@@ -21,7 +21,7 @@ Standard Hong Kong rules:
 
 ## Scoring
 
-Games are played as **sets of 10 hands** with traditional settlement scoring: when someone goes out, each other player pays the winner for the cards left in their hand, with multipliers for getting caught heavy. Losers go negative, the winner collects the sum, and every hand is zero-sum:
+Games are played as **matches of 10 hands** with traditional settlement scoring: when someone goes out, each other player pays the winner for the cards left in their hand, with multipliers for getting caught heavy. Losers go negative, the winner collects the sum, and every hand is zero-sum:
 
 | Cards left | Penalty |
 |---|---|
@@ -30,7 +30,7 @@ Games are played as **sets of 10 hands** with traditional settlement scoring: wh
 | 10–12 | 3 points per card |
 | 13 | 4 points per card |
 
-Highest total after 10 hands wins the set. Ties break by most hands won, then most recent hand won (Big 2 has no official governing rules; this is the common convention among digital implementations). The winner of each hand leads the next one; the 3♦ rule applies only to a set's opening hand. Set scores persist in localStorage, so you can close the app mid-set and pick it back up.
+Highest total after 10 hands wins the match. Ties break by most hands won, then most recent hand won (Big 2 has no official governing rules; this is the common convention among digital implementations). The winner of each hand leads the next one; the 3♦ rule applies only to a set's opening hand. Set scores persist in localStorage, so you can close the app mid-match and pick it back up.
 
 ## Bots
 
@@ -40,7 +40,7 @@ You play against Kit, Chun, and Ming. Three difficulty modes, selectable in-game
 - **Medium** plays the cheapest legal answer but protects its 2s and intact pairs with fixed rules, and dumps low cards in big shapes when leading.
 - **Hard** runs a hand-strength evaluator: it greedily partitions its hand into the fewest plays needed to empty it, values control cards (2s, aces), penalizes hoarding (the score multipliers punish getting caught heavy), and decides whether to pass by comparing the structural cost of the cheapest answer against the tempo value of staying in the trick. It also plays endgame denial, beating singles with its tallest card when someone is nearly out.
 
-In a 250-hand simulation, hard gives up markedly fewer points per set than medium, and medium fewer than easy.
+In a 250-hand simulation, hard gives up markedly fewer points per match than medium, and medium fewer than easy.
 
 ## Tech
 
