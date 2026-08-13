@@ -118,13 +118,19 @@
   /* my hand */
   .me{padding:6px 0 10px}
   .hand{
-    display:flex;justify-content:center;padding:22px 14px 4px;min-height:104px;
+    display:flex;justify-content:center;padding:24px 14px 14px;min-height:118px;
     border-radius:18px;transition:background .35s;
   }
   .hand.turn{background:radial-gradient(60% 85% at 50% 100%,rgba(214,162,62,.10),transparent 72%)}
-  .hand .card{margin-left:-26px;transition:transform .16s ease}
+  .hand .card{
+    margin-left:-26px;transition:transform .16s ease;transform-origin:50% 115%;
+    transform:rotate(var(--rot,0deg)) translateY(var(--arc,0px));
+  }
   .hand .card:first-child{margin-left:0}
-  .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
+  .hand .card.sel{
+    transform:rotate(var(--rot,0deg)) translateY(calc(var(--arc,0px) + var(--raise)));
+    box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold);
+  }
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -160,6 +166,10 @@
   .row .right{color:var(--muted)}
   .row.first .left{color:var(--gold);font-weight:600}
   .panel .btn{width:100%;max-width:none}
+  .rules{text-align:left;font-size:13px;line-height:1.5;margin-bottom:18px}
+  .rules p{margin:0 0 9px;color:var(--muted)}
+  .rules p:last-child{margin-bottom:0}
+  .rules b{color:var(--paper);font-weight:600}
 
   @media (prefers-reduced-motion: reduce){
     *{transition:none !important;animation:none !important}
@@ -173,7 +183,7 @@
 
 <header>
   <div class="brand"><span class="zh">大老二</span>Big Two</div>
-  <div class="hright"><span class="handno" id="handNo"></span><button class="newgame" id="btnNew">New match</button></div>
+  <div class="hright"><span class="handno" id="handNo"></span><button class="newgame" id="btnHelp" aria-label="How to play">?</button><button class="newgame" id="btnNew">New match</button></div>
 </header>
 
 <div class="opps" id="opps"></div>
@@ -194,6 +204,22 @@
     <div class="seg" id="seg" role="group" aria-label="Bot difficulty">
       <button data-d="easy">Easy</button><button data-d="medium">Med</button><button data-d="hard">Hard</button>
     </div>
+  </div>
+</div>
+
+<div class="overlay" id="helpOverlay">
+  <div class="panel">
+    <h2>How to play</h2>
+    <div class="rules">
+      <p><b>Goal</b> · Play all 13 of your cards first.</p>
+      <p><b>Order</b> · 3 is lowest, 2 is highest. Suits break ties: ♦ ♣ ♥ ♠.</p>
+      <p><b>Plays</b> · A single, a pair, a triple, or a five-card poker hand: straight, flush, full house, four of a kind, straight flush.</p>
+      <p><b>Your turn</b> · Beat the last play with the same number of cards, or pass.</p>
+      <p><b>Everyone passes?</b> · The table clears and the last player leads anything.</p>
+      <p><b>Start</b> · Whoever holds the 3♦ opens the match with it. After that, each hand's winner leads the next.</p>
+      <p><b>Scoring</b> · Losers pay the winner for every card left in hand. Getting caught with 8 or more costs extra. Highest total after 10 hands wins.</p>
+    </div>
+    <button class="btn pass" id="btnHelpClose">Close</button>
   </div>
 </div>
 
@@ -672,8 +698,14 @@ function renderHand(){
   if(k===handKey)return;
   handKey=k;
   handEl.innerHTML="";
+  const n=state.hands[0].length,mid=(n-1)/2;
   state.hands[0].forEach((c,i)=>{
     const d=cardEl(c);
+    // fan: rotate around a low pivot, arc the edges down, add a hair of jitter
+    const off=i-mid;
+    const rot=off*1.8+((i*37)%5-2)*0.4;
+    d.style.setProperty("--rot",rot.toFixed(2)+"deg");
+    d.style.setProperty("--arc",(off*off*0.55).toFixed(2)+"px");
     d.setAttribute("role","button");
     d.setAttribute("tabindex","0");
     d.setAttribute("aria-label",ariaName(c));
@@ -729,6 +761,10 @@ segEl.addEventListener("click",e=>{
   const b=e.target.closest("button");
   if(b&&b.dataset.d)setDifficulty(b.dataset.d);
 });
+const helpOverlay=document.getElementById("helpOverlay");
+document.getElementById("btnHelp").addEventListener("click",()=>helpOverlay.classList.add("show"));
+document.getElementById("btnHelpClose").addEventListener("click",()=>helpOverlay.classList.remove("show"));
+helpOverlay.addEventListener("click",e=>{if(e.target===helpOverlay)helpOverlay.classList.remove("show")});
 
 if("serviceWorker" in navigator){
   addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
