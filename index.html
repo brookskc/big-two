@@ -83,11 +83,11 @@
   .play-group{position:absolute;display:flex;transition:opacity .5s ease, transform .35s, filter .5s ease}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
-  .play-group.fly0{animation:fly0 .42s cubic-bezier(.2,.8,.3,1)}
+  .play-group.arrive{animation:arrive .22s ease-out .3s backwards} /* waits for the hand cards to land */
+  @keyframes arrive{from{opacity:0}}
   .play-group.fly1{animation:fly1 .42s cubic-bezier(.2,.8,.3,1)}
   .play-group.fly2{animation:fly2 .42s cubic-bezier(.2,.8,.3,1)}
   .play-group.fly3{animation:fly3 .42s cubic-bezier(.2,.8,.3,1)}
-  @keyframes fly0{from{transform:translate(0,160px) scale(.9);opacity:0}}
   @keyframes fly1{from{transform:translate(-140px,-120px) scale(.9);opacity:0}}
   @keyframes fly2{from{transform:translate(0,-120px) scale(.9);opacity:0}}
   @keyframes fly3{from{transform:translate(140px,-120px) scale(.9);opacity:0}}
@@ -122,7 +122,7 @@
   .hand .card{margin-left:-26px;transition:transform .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
-  .hand .card.leaving{transition:transform .38s cubic-bezier(.4,0,.5,1), opacity .38s ease-in;opacity:0;pointer-events:none}
+  .hand .card.leaving{transition:transform .38s cubic-bezier(.4,0,.5,1), opacity .12s ease-in .28s;opacity:0;pointer-events:none;z-index:3}
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -791,7 +791,9 @@ function renderPile(){
     const g=document.createElement("div");
     const last=i===shown.length-1;
     g.className="play-group";
-    if(last&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
+    // Seat 0's cards physically fly out of the hand, so its play only needs
+    // to appear as they land; the bots' plays fly in from their seats.
+    if(last&&state.plays.length>state.animSeen)g.classList.add(p.seat===0?"arrive":"fly"+p.seat);
     const rot=((p.seat*47)%5)-2; // whisper of a group tilt
     g.style.transform=`rotate(${rot}deg)`; // start where it landed
     // Dim and lift the previous play a frame after insertion so both fade and
