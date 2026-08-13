@@ -22,9 +22,10 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
-// The page itself is network-first, so updates arrive on the next launch
-// without touching this file. Offline falls back to the cached copy.
-// Everything else (icons, manifest) is cache-first.
+// The page is network-first, so updates arrive on the next launch without
+// touching this file; offline falls back to the cached copy. Assets (icons,
+// manifest) are stale-while-revalidate: served from cache instantly, then
+// refreshed in the background, so nothing can go stale forever.
 self.addEventListener("fetch", (e) => {
   if (e.request.mode === "navigate") {
     e.respondWith(
@@ -38,5 +39,16 @@ self.addEventListener("fetch", (e) => {
     );
     return;
   }
-  e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
+  if (e.request.method !== "GET") return;
+  e.respondWith((async () => {
+    const hit = await caches.match(e.request);
+    const refresh = fetch(e.request)
+      .then((res) => {
+        if (res.ok) caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+        return res;
+      })
+      .catch(() => hit);
+    if (hit) { e.waitUntil(refresh.then(() => {})); return hit; }
+    return refresh;
+  })());
 });

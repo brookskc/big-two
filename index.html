@@ -661,6 +661,7 @@ function endGame(winner){
     return `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${right}</span></div>`;
   }).join("");
   btnAgain.textContent=done?"New match":"Next hand";
+  handNo.textContent=`Hand ${match.hand} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
   ui.ovTimer=setTimeout(()=>{
     overlay.classList.add("show");
     if(done&&champ===0)celebrate();

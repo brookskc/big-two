@@ -17,7 +17,7 @@ Standard Hong Kong rules:
 - Suit order: ♦ < ♣ < ♥ < ♠.
 - Legal plays: singles, pairs, triples, and five-card poker hands (straight < flush < full house < four of a kind < straight flush).
 - You must beat the current play with the same number of cards, or pass. When all three others pass, the table clears and the last player leads anything.
-- First player to empty their hand wins the hand. No 2s in straights, no wraparound.
+- First player to empty their hand wins the hand. No 2s in straights, no wraparound; flushes compare by their highest card.
 
 ## Scoring
 
