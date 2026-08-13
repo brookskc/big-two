@@ -118,19 +118,13 @@
   /* my hand */
   .me{padding:6px 0 10px}
   .hand{
-    display:flex;justify-content:center;padding:24px 14px 14px;min-height:118px;
+    display:flex;justify-content:center;padding:22px 14px 4px;min-height:104px;
     border-radius:18px;transition:background .35s;
   }
   .hand.turn{background:radial-gradient(60% 85% at 50% 100%,rgba(214,162,62,.10),transparent 72%)}
-  .hand .card{
-    margin-left:-26px;transition:transform .16s ease;transform-origin:50% 115%;
-    transform:rotate(var(--rot,0deg)) translateY(var(--arc,0px));
-  }
+  .hand .card{margin-left:-26px;transition:transform .16s ease}
   .hand .card:first-child{margin-left:0}
-  .hand .card.sel{
-    transform:rotate(var(--rot,0deg)) translateY(calc(var(--arc,0px) + var(--raise)));
-    box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold);
-  }
+  .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -678,9 +672,16 @@ function renderPile(){
     const last=i===shown.length-1;
     g.className="play-group"+(last&&state.current?"":" old");
     if(last&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
-    const rot=((p.seat*47)%9)-4;
+    const rot=((p.seat*47)%5)-2; // whisper of a group tilt
     g.style.transform=`rotate(${rot}deg) translateY(${last?0:-6}px)`;
-    p.combo.cards.forEach(c=>g.appendChild(cardEl(c)));
+    p.combo.cards.forEach((c,j)=>{
+      const d=cardEl(c);
+      // each card lands with its own small twist and drop, like a real toss
+      const jr=((p.seat*31+j*17)%7)-3;
+      const jy=((p.seat*13+j*11)%5)-2;
+      d.style.transform=`rotate(${jr}deg) translateY(${jy}px)`;
+      g.appendChild(d);
+    });
     pileEl.appendChild(g);
   });
   state.animSeen=state.plays.length;
@@ -698,14 +699,8 @@ function renderHand(){
   if(k===handKey)return;
   handKey=k;
   handEl.innerHTML="";
-  const n=state.hands[0].length,mid=(n-1)/2;
   state.hands[0].forEach((c,i)=>{
     const d=cardEl(c);
-    // fan: rotate around a low pivot, arc the edges down, add a hair of jitter
-    const off=i-mid;
-    const rot=off*1.8+((i*37)%5-2)*0.4;
-    d.style.setProperty("--rot",rot.toFixed(2)+"deg");
-    d.style.setProperty("--arc",(off*off*0.55).toFixed(2)+"px");
     d.setAttribute("role","button");
     d.setAttribute("tabindex","0");
     d.setAttribute("aria-label",ariaName(c));
