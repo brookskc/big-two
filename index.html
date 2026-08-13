@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0E1D17">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Big Two</title>
+<style>
+  :root{
+    --felt-deep:#0E1D17;
+    --felt:#172B21;
+    --felt-hi:#1E362A;
+    --line:rgba(255,255,255,.08);
+    --paper:#F7F2E4;
+    --paper-edge:#E4DCC6;
+    --ink:#23261F;
+    --red:#C2382C;
+    --gold:#D6A23E;
+    --muted:#8FA394;
+    --raise:-16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  html,body{height:100%;margin:0;overscroll-behavior:none}
+  body{
+    background:
+      radial-gradient(120% 90% at 50% 0%, var(--felt-hi) 0%, var(--felt) 45%, var(--felt-deep) 100%);
+    color:var(--paper);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex;flex-direction:column;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    touch-action:manipulation;
+  }
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:10px 16px 6px;
+  }
+  .brand{font-family:ui-rounded,-apple-system,sans-serif;font-weight:700;font-size:15px;letter-spacing:.04em}
+  .brand .zh{color:var(--gold);margin-right:6px;font-weight:600}
+  .newgame{
+    background:none;border:1px solid var(--line);color:var(--muted);
+    font:inherit;font-size:12px;padding:6px 12px;border-radius:99px;
+  }
+  .newgame:active{color:var(--paper);border-color:var(--muted)}
+
+  /* opponents */
+  .opps{display:flex;justify-content:space-around;padding:4px 10px 0;gap:8px}
+  .opp{
+    flex:1;max-width:120px;text-align:center;padding:8px 4px 9px;border-radius:12px;
+    border:1px solid transparent;transition:border-color .25s, background .25s;position:relative;
+  }
+  .opp.active{border-color:rgba(214,162,62,.55);background:rgba(214,162,62,.07)}
+  .opp .name{font-size:12px;color:var(--muted);margin-bottom:3px}
+  .opp.active .name{color:var(--gold)}
+  .opp .count{font-family:ui-rounded,-apple-system,sans-serif;font-weight:700;font-size:19px}
+  .opp .count small{font-size:10px;font-weight:500;color:var(--muted);margin-left:3px}
+  .opp .bubble{
+    position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);
+    background:var(--paper);color:var(--ink);font-size:10px;font-weight:600;
+    padding:2px 8px;border-radius:99px;opacity:0;transition:opacity .2s;white-space:nowrap;pointer-events:none;
+  }
+  .opp .bubble.show{opacity:1}
+
+  /* table / pile */
+  .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
+  .pile{position:relative;height:110px;width:100%;display:flex;align-items:center;justify-content:center}
+  .play-group{position:absolute;display:flex;transition:opacity .35s, transform .35s}
+  .play-group.old{opacity:.28;filter:saturate(.6)}
+  .play-group.gone{opacity:0}
+  .status{
+    margin-top:14px;font-size:13px;color:var(--muted);text-align:center;min-height:18px;padding:0 24px;
+  }
+  .status b{color:var(--paper);font-weight:600}
+  .status.mine{color:var(--gold)}
+
+  /* cards */
+  .card{
+    width:52px;height:74px;border-radius:7px;background:var(--paper);
+    border:1px solid var(--paper-edge);
+    box-shadow:0 2px 5px rgba(0,0,0,.35);
+    color:var(--ink);position:relative;flex-shrink:0;
+  }
+  .card.red{color:var(--red)}
+  .card .cor{position:absolute;top:4px;left:5px;font-size:13px;font-weight:700;line-height:1.02;text-align:center;font-family:ui-rounded,-apple-system,sans-serif}
+  .card .cor span{display:block;font-size:11px;font-weight:400}
+  .card .pip{position:absolute;bottom:5px;right:7px;font-size:21px}
+  .pile .card{width:46px;height:66px}
+  .pile .card + .card{margin-left:-16px}
+  .pile .card .pip{font-size:18px}
+
+  /* my hand */
+  .me{padding:6px 0 10px}
+  .hand{
+    display:flex;justify-content:center;padding:22px 14px 4px;min-height:104px;
+  }
+  .hand .card{margin-left:-26px;transition:transform .16s ease}
+  .hand .card:first-child{margin-left:0}
+  .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
+  .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
+  .btn{
+    font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
+    flex:1;max-width:170px;transition:opacity .15s;
+  }
+  .btn:disabled{opacity:.35}
+  .btn.pass{background:rgba(255,255,255,.09);color:var(--paper);border:1px solid var(--line)}
+  .btn.play{background:var(--red);color:#FFF7EC;box-shadow:0 3px 10px rgba(194,56,44,.35)}
+  .btn.play:active:not(:disabled){transform:translateY(1px)}
+  .hint{text-align:center;font-size:10.5px;color:var(--muted);padding:6px 0 2px;letter-spacing:.03em}
+
+  /* overlay */
+  .overlay{
+    position:fixed;inset:0;background:rgba(8,15,12,.82);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s;z-index:10;
+  }
+  .overlay.show{opacity:1;pointer-events:auto}
+  .panel{
+    background:var(--felt);border:1px solid var(--line);border-radius:18px;
+    padding:26px 28px 22px;width:min(320px,86vw);text-align:center;
+  }
+  .panel h2{margin:0 0 4px;font-family:ui-rounded,-apple-system,sans-serif;font-size:22px}
+  .panel h2.win{color:var(--gold)}
+  .panel .sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+  .rows{margin-bottom:20px}
+  .row{display:flex;justify-content:space-between;padding:7px 4px;font-size:14px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .left{color:var(--paper)}
+  .row .right{color:var(--muted)}
+  .row.first .left{color:var(--gold);font-weight:600}
+  .panel .btn{width:100%;max-width:none}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;animation:none !important}
+  }
+  @media (max-width:355px){
+    .hand .card{margin-left:-30px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="zh">大老二</span>Big Two</div>
+  <button class="newgame" id="btnNew">New game</button>
+</header>
+
+<div class="opps" id="opps"></div>
+
+<div class="table">
+  <div class="pile" id="pile"></div>
+  <div class="status" id="status"></div>
+</div>
+
+<div class="me">
+  <div class="hand" id="hand"></div>
+  <div class="controls">
+    <button class="btn pass" id="btnPass">Pass</button>
+    <button class="btn play" id="btnPlay">Play</button>
+  </div>
+  <div class="hint">3 low · 2 high&nbsp;&nbsp;·&nbsp;&nbsp;♦ ♣ ♥ ♠</div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="panel">
+    <h2 id="ovTitle"></h2>
+    <div class="sub" id="ovSub"></div>
+    <div class="rows" id="ovRows"></div>
+    <button class="btn play" id="btnAgain">Deal again</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------------- engine ---------------- */
+const RANKS=["3","4","5","6","7","8","9","10","J","Q","K","A","2"];
+const SUITS=["♦","♣","♥","♠"];
+const RED=new Set([0,2]); // ♦ ♥
+const val=c=>c.r*4+c.s;
+const cname=c=>RANKS[c.r]+SUITS[c.s];
+
+function deck(){
+  const d=[];
+  for(let r=0;r<13;r++)for(let s=0;s<4;s++)d.push({r,s});
+  for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
+  return d;
+}
+
+/* classify a selection. returns null if invalid.
+   {size, cat, strength}  cat: 0 single/pair/triple (unused), fives: 0 straight,1 flush,2 full,3 quads,4 sflush */
+function classify(cards){
+  const n=cards.length;
+  const cs=[...cards].sort((a,b)=>val(a)-val(b));
+  if(n===1)return{size:1,cat:0,strength:val(cs[0]),cards:cs};
+  if(n===2)return cs[0].r===cs[1].r?{size:2,cat:0,strength:val(cs[1]),cards:cs}:null;
+  if(n===3)return cs[0].r===cs[1].r&&cs[1].r===cs[2].r?{size:3,cat:0,strength:val(cs[2]),cards:cs}:null;
+  if(n!==5)return null;
+  const flush=cs.every(c=>c.s===cs[0].s);
+  const straight=cs.every((c,i)=>i===0||c.r===cs[i-1].r+1)&&cs[4].r<=11; // no 2s, no wrap
+  const cnt={};cs.forEach(c=>cnt[c.r]=(cnt[c.r]||0)+1);
+  const groups=Object.entries(cnt).map(([r,k])=>({r:+r,k})).sort((a,b)=>b.k-a.k);
+  if(straight&&flush)return{size:5,cat:4,strength:val(cs[4]),cards:cs};
+  if(groups[0].k===4)return{size:5,cat:3,strength:groups[0].r,cards:cs};
+  if(groups[0].k===3&&groups[1].k===2)return{size:5,cat:2,strength:groups[0].r,cards:cs};
+  if(flush)return{size:5,cat:1,strength:val(cs[4]),cards:cs};
+  if(straight)return{size:5,cat:0,strength:val(cs[4]),cards:cs};
+  return null;
+}
+function beats(a,b){ // does a beat b
+  if(a.size!==b.size)return false;
+  if(a.size<5)return a.strength>b.strength;
+  return a.cat>b.cat||(a.cat===b.cat&&a.strength>b.strength);
+}
+function legal(combo,current,firstMove){
+  if(!combo)return false;
+  if(firstMove&&!combo.cards.some(c=>c.r===0&&c.s===0))return false; // must include 3♦
+  if(!current)return true;
+  return beats(combo,current);
+}
+
+/* ---------------- combo generation (bots) ---------------- */
+function combinations(arr,k){
+  const out=[];
+  (function go(start,cur){
+    if(cur.length===k){out.push([...cur]);return;}
+    for(let i=start;i<arr.length;i++){cur.push(arr[i]);go(i+1,cur);cur.pop();}
+  })(0,[]);
+  return out;
+}
+function allCombos(hand){
+  const byRank={},bySuit={};
+  hand.forEach(c=>{(byRank[c.r]=byRank[c.r]||[]).push(c);(bySuit[c.s]=bySuit[c.s]||[]).push(c);});
+  const out=[];
+  hand.forEach(c=>out.push(classify([c])));
+  for(const r in byRank){
+    const g=byRank[r];
+    if(g.length>=2)combinations(g,2).forEach(p=>out.push(classify(p)));
+    if(g.length>=3)combinations(g,3).forEach(t=>out.push(classify(t)));
+  }
+  const fives=[];
+  // straights
+  for(let w=0;w<=7;w++){
+    const cols=[];let ok=true;
+    for(let r=w;r<w+5;r++){if(!byRank[r]){ok=false;break;}cols.push(byRank[r]);}
+    if(!ok)continue;
+    let picks=[[]];
+    for(const col of cols){
+      const nx=[];
+      for(const p of picks)for(const c of col){nx.push([...p,c]);if(nx.length>240)break;}
+      picks=nx;
+    }
+    picks.forEach(p=>fives.push(p));
+  }
+  // flushes
+  for(const s in bySuit){
+    const g=bySuit[s];
+    if(g.length>=5)combinations(g,5).forEach(f=>fives.push(f));
+  }
+  // full houses + quads
+  for(const r3 in byRank){
+    const g3=byRank[r3];
+    if(g3.length>=3){
+      const triples=combinations(g3,3);
+      for(const r2 in byRank){
+        if(r2===r3)continue;
+        const g2=byRank[r2];
+        if(g2.length>=2){
+          const pairs=combinations(g2,2);
+          for(const t of triples)for(const p of pairs)fives.push([...t,...p]);
+        }
+      }
+    }
+    if(g3.length===4){
+      hand.forEach(k=>{if(k.r!==+r3)fives.push([...g3,k]);});
+    }
+  }
+  const seen=new Set();
+  for(const f of fives){
+    const key=f.map(val).sort((a,b)=>a-b).join(",");
+    if(seen.has(key))continue;seen.add(key);
+    const c=classify(f);
+    if(c)out.push(c);
+  }
+  return out.filter(Boolean);
+}
+
+/* ---------------- bot brain ---------------- */
+function botChoose(seat){
+  const hand=state.hands[seat];
+  const combos=allCombos(hand);
+  const current=state.current;
+  const rankCount={};hand.forEach(c=>rankCount[c.r]=(rankCount[c.r]||0)+1);
+  const minOpp=Math.min(...state.hands.map((h,i)=>i===seat?99:h.length));
+  const urgent=minOpp<=3;
+
+  if(!current){
+    // leading: dump low, prefer bigger combos, avoid leading 2s early
+    let best=null,bestScore=Infinity;
+    for(const c of combos){
+      if(state.firstMove&&!c.cards.some(x=>x.r===0&&x.s===0))continue;
+      let score=c.cards.reduce((a,x)=>a+val(x),0)/c.size - c.size*7;
+      if(hand.length>4&&c.cards.some(x=>x.r===12))score+=120; // save 2s
+      if(c.size===hand.length)score-=1000; // going out
+      if(score<bestScore){bestScore=score;best=c;}
+    }
+    return best; // leading always has at least a single
+  }
+
+  // following
+  let opts=combos.filter(c=>beats(c,current));
+  if(!opts.length)return null;
+  // avoid breaking pairs/triples when playing singles
+  opts.sort((a,b)=>{
+    const pen=x=>{
+      let p=0;
+      if(x.size===1&&rankCount[x.cards[0].r]>=2)p+=10;
+      if(x.size===2&&rankCount[x.cards[0].r]>=3)p+=10;
+      return p;
+    };
+    return (a.cat*200+a.strength+pen(a))-(b.cat*200+b.strength+pen(b));
+  });
+  const pick=opts.find(o=>o.size===o.cards.length&&o.size===hand.length)||opts[0];
+  if(pick.size===hand.length)return pick; // wins the game
+  // discretion: don't burn 2s or big fives early
+  const burnsTwo=pick.cards.some(c=>c.r===12);
+  if(!urgent&&hand.length>6&&burnsTwo&&Math.random()<0.65)return null;
+  if(!urgent&&pick.size===1&&rankCount[pick.cards[0].r]>=2&&hand.length>7&&Math.random()<0.4)return null;
+  return pick;
+}
+
+/* ---------------- game state ---------------- */
+const NAMES=["You","Mei","Old Chan","Wing"];
+let state=null;
+
+function newGame(){
+  const d=deck();
+  const hands=[[],[],[],[]];
+  d.forEach((c,i)=>hands[i%4].push(c));
+  hands.forEach(h=>h.sort((a,b)=>val(a)-val(b)));
+  let leader=0;
+  hands.forEach((h,i)=>{if(h.some(c=>c.r===0&&c.s===0))leader=i;});
+  state={
+    hands,turn:leader,current:null,owner:-1,
+    firstMove:true,over:false,sel:new Set(),plays:[],timer:null
+  };
+  overlay.classList.remove("show");
+  setStatus(leader===0
+    ?"You have the <b>3♦</b> — lead with it"
+    :`<b>${NAMES[leader]}</b> has the 3♦ and leads`);
+  renderAll();
+  if(leader!==0)queueBot();
+}
+
+function setStatus(html,mine){
+  statusEl.innerHTML=html;
+  statusEl.classList.toggle("mine",!!mine);
+}
+function describe(c){
+  if(c.size===1)return"single "+cname(c.cards[0]);
+  if(c.size===2)return"pair of "+RANKS[c.cards[0].r]+"s";
+  if(c.size===3)return"triple "+RANKS[c.cards[0].r]+"s";
+  return["a straight","a flush","a full house","four of a kind","a straight flush"][c.cat];
+}
+
+function applyPlay(seat,combo){
+  const h=state.hands[seat];
+  combo.cards.forEach(c=>h.splice(h.findIndex(x=>x.r===c.r&&x.s===c.s),1));
+  state.current=combo;state.owner=seat;state.firstMove=false;
+  state.plays.push({seat,combo});
+  if(seat===0)state.sel.clear();
+  renderAll();
+  if(h.length===0){endGame(seat);return;}
+  advance();
+}
+function applyPass(seat){
+  if(seat!==0)bubble(seat,"Pass");
+  advance();
+}
+function advance(){
+  state.turn=(state.turn+1)%4;
+  if(state.turn===state.owner&&state.current){
+    // everyone passed: trick clears, owner leads
+    state.current=null;state.owner=-1;
+    fadePile();
+    setStatus(state.turn===0?"Everyone passed — <b>you lead</b>":`Table cleared — <b>${NAMES[state.turn]}</b> leads`,state.turn===0);
+  }else{
+    promptStatus();
+  }
+  renderAll();
+  if(state.turn!==0&&!state.over)queueBot();
+}
+function promptStatus(){
+  if(state.turn===0){
+    setStatus(state.current?`Your turn — beat the <b>${describe(state.current)}</b>`:"Your turn — <b>lead anything</b>",true);
+  }else{
+    setStatus(`<b>${NAMES[state.turn]}</b> is thinking…`);
+  }
+}
+function queueBot(){
+  clearTimeout(state.timer);
+  state.timer=setTimeout(()=>{
+    if(state.over)return;
+    const seat=state.turn;
+    const pick=botChoose(seat);
+    if(pick){
+      bubble(seat,describe(pick));
+      applyPlay(seat,pick);
+    }else{
+      applyPass(seat);
+    }
+  },650+Math.random()*450);
+}
+function endGame(winner){
+  state.over=true;
+  clearTimeout(state.timer);
+  const order=[0,1,2,3].sort((a,b)=>state.hands[a].length-state.hands[b].length);
+  ovTitle.textContent=winner===0?"You win!":`${NAMES[winner]} wins`;
+  ovTitle.classList.toggle("win",winner===0);
+  ovSub.textContent=winner===0?"Clean sweep. Deal another?":"Cards left on the table:";
+  ovRows.innerHTML=order.map((s,i)=>
+    `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${state.hands[s].length===0?"out first":state.hands[s].length+" left"}</span></div>`
+  ).join("");
+  setTimeout(()=>overlay.classList.add("show"),700);
+}
+
+/* ---------------- rendering ---------------- */
+const oppsEl=document.getElementById("opps");
+const pileEl=document.getElementById("pile");
+const handEl=document.getElementById("hand");
+const statusEl=document.getElementById("status");
+const btnPlay=document.getElementById("btnPlay");
+const btnPass=document.getElementById("btnPass");
+const overlay=document.getElementById("overlay");
+const ovTitle=document.getElementById("ovTitle");
+const ovSub=document.getElementById("ovSub");
+const ovRows=document.getElementById("ovRows");
+
+function cardEl(c,small){
+  const d=document.createElement("div");
+  d.className="card"+(RED.has(c.s)?" red":"");
+  d.innerHTML=`<div class="cor">${RANKS[c.r]}<span>${SUITS[c.s]}</span></div><div class="pip">${SUITS[c.s]}</div>`;
+  return d;
+}
+function renderOpps(){
+  oppsEl.innerHTML="";
+  for(let s=1;s<=3;s++){
+    const d=document.createElement("div");
+    d.className="opp"+(state.turn===s&&!state.over?" active":"");
+    d.id="opp"+s;
+    const bub=state.bubble&&state.bubble.seat===s?state.bubble.text:"";
+    d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div><div class="bubble${bub?" show":""}">${bub}</div>`;
+    oppsEl.appendChild(d);
+  }
+}
+function bubble(seat,text){
+  state.bubble={seat,text};
+  renderOpps();
+  clearTimeout(state.bubbleTimer);
+  state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1200);
+}
+let pileGroups=[];
+function renderPile(){
+  // show last play prominently, one faded behind
+  pileEl.innerHTML="";
+  const shown=state.plays.slice(-2);
+  shown.forEach((p,i)=>{
+    const g=document.createElement("div");
+    const last=i===shown.length-1;
+    g.className="play-group"+(last&&state.current?"":" old");
+    const rot=((p.seat*47)%9)-4;
+    g.style.transform=`rotate(${rot}deg) translateY(${last?0:-6}px)`;
+    p.combo.cards.forEach(c=>g.appendChild(cardEl(c,true)));
+    pileEl.appendChild(g);
+  });
+}
+function fadePile(){
+  [...pileEl.children].forEach(g=>g.classList.add("gone"));
+  state.plays=[];
+}
+function renderHand(){
+  handEl.innerHTML="";
+  state.hands[0].forEach((c,i)=>{
+    const d=cardEl(c);
+    if(state.sel.has(i))d.classList.add("sel");
+    d.addEventListener("pointerdown",e=>{
+      e.preventDefault();
+      if(state.over)return;
+      state.sel.has(i)?state.sel.delete(i):state.sel.add(i);
+      d.classList.toggle("sel");
+      updateButtons();
+    });
+    handEl.appendChild(d);
+  });
+}
+function selectedCombo(){
+  const cards=[...state.sel].map(i=>state.hands[0][i]);
+  return cards.length?classify(cards):null;
+}
+function updateButtons(){
+  const myTurn=state.turn===0&&!state.over;
+  const combo=selectedCombo();
+  btnPlay.disabled=!(myTurn&&legal(combo,state.current,state.firstMove));
+  btnPass.disabled=!(myTurn&&state.current);
+}
+function renderAll(){
+  renderOpps();renderPile();renderHand();updateButtons();
+}
+
+/* ---------------- input ---------------- */
+btnPlay.addEventListener("click",()=>{
+  const combo=selectedCombo();
+  if(state.turn!==0||!legal(combo,state.current,state.firstMove))return;
+  applyPlay(0,combo);
+});
+btnPass.addEventListener("click",()=>{
+  if(state.turn!==0||!state.current)return;
+  state.sel.clear();
+  applyPass(0);
+});
+document.getElementById("btnNew").addEventListener("click",()=>{clearTimeout(state?.timer);newGame();});
+document.getElementById("btnAgain").addEventListener("click",()=>newGame());
+
+newGame();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
