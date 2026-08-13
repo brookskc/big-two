@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0E1D17">
 <link rel="manifest" href="manifest.webmanifest">
@@ -160,7 +161,7 @@
 
 <div class="table">
   <div class="pile" id="pile"></div>
-  <div class="status" id="status"></div>
+  <div class="status" id="status" aria-live="polite"></div>
 </div>
 
 <div class="me">
@@ -177,18 +178,30 @@
     <h2 id="ovTitle"></h2>
     <div class="sub" id="ovSub"></div>
     <div class="rows" id="ovRows"></div>
-    <button class="btn play" id="btnAgain">Deal again</button>
+    <button class="btn play" id="btnAgain">Next hand</button>
   </div>
 </div>
 
 <script>
 "use strict";
+/* Big Two — single-file game, no dependencies.
+   Layout of this script:
+     engine          pure rules: cards, hand classification, comparison
+     combo search    everything a hand can legally form (used by bots)
+     bot             heuristic opponent
+     match           set scoring + persistence
+     flow            turn loop
+     rendering       DOM (knows nothing about rules)
+     input           buttons + boot */
+
 /* ---------------- engine ---------------- */
 const RANKS=["3","4","5","6","7","8","9","10","J","Q","K","A","2"];
 const SUITS=["♦","♣","♥","♠"];
 const RED=new Set([0,2]); // ♦ ♥
-const val=c=>c.r*4+c.s;
+const FIVE_NAMES=["straight","flush","full house","four of a kind","straight flush"];
+const val=c=>c.r*4+c.s;            // total order: rank first, then suit
 const cname=c=>RANKS[c.r]+SUITS[c.s];
+const isThreeD=c=>c.r===0&&c.s===0; // 3♦ opens the first hand of a set
 
 function deck(){
   const d=[];
@@ -197,8 +210,9 @@ function deck(){
   return d;
 }
 
-/* classify a selection. returns null if invalid.
-   {size, cat, strength}  cat: 0 single/pair/triple (unused), fives: 0 straight,1 flush,2 full,3 quads,4 sflush */
+/* Classify a selection; null if it isn't a legal shape.
+   Returns {size, cat, strength, cards}. cat only matters for five-card
+   hands: 0 straight, 1 flush, 2 full house, 3 quads, 4 straight flush. */
 function classify(cards){
   const n=cards.length;
   const cs=[...cards].sort((a,b)=>val(a)-val(b));
@@ -209,27 +223,28 @@ function classify(cards){
   const flush=cs.every(c=>c.s===cs[0].s);
   const straight=cs.every((c,i)=>i===0||c.r===cs[i-1].r+1)&&cs[4].r<=11; // no 2s, no wrap
   const cnt={};cs.forEach(c=>cnt[c.r]=(cnt[c.r]||0)+1);
-  const groups=Object.entries(cnt).map(([r,k])=>({r:+r,k})).sort((a,b)=>b.k-a.k);
+  const groups=Object.values(cnt).sort((a,b)=>b-a);
+  const topRank=+Object.keys(cnt).find(r=>cnt[r]===groups[0]);
   if(straight&&flush)return{size:5,cat:4,strength:val(cs[4]),cards:cs};
-  if(groups[0].k===4)return{size:5,cat:3,strength:groups[0].r,cards:cs};
-  if(groups[0].k===3&&groups[1].k===2)return{size:5,cat:2,strength:groups[0].r,cards:cs};
+  if(groups[0]===4)return{size:5,cat:3,strength:topRank,cards:cs};
+  if(groups[0]===3&&groups[1]===2)return{size:5,cat:2,strength:topRank,cards:cs};
   if(flush)return{size:5,cat:1,strength:val(cs[4]),cards:cs};
   if(straight)return{size:5,cat:0,strength:val(cs[4]),cards:cs};
   return null;
 }
-function beats(a,b){ // does a beat b
+function beats(a,b){
   if(a.size!==b.size)return false;
   if(a.size<5)return a.strength>b.strength;
   return a.cat>b.cat||(a.cat===b.cat&&a.strength>b.strength);
 }
-function legal(combo,current,firstMove){
+function isLegal(combo,current,firstMove){
   if(!combo)return false;
-  if(firstMove&&!combo.cards.some(c=>c.r===0&&c.s===0))return false; // must include 3♦
+  if(firstMove&&!combo.cards.some(isThreeD))return false;
   if(!current)return true;
   return beats(combo,current);
 }
 
-/* ---------------- combo generation (bots) ---------------- */
+/* ---------------- combo search ---------------- */
 function combinations(arr,k){
   const out=[];
   (function go(start,cur){
@@ -241,116 +256,101 @@ function combinations(arr,k){
 function allCombos(hand){
   const byRank={},bySuit={};
   hand.forEach(c=>{(byRank[c.r]=byRank[c.r]||[]).push(c);(bySuit[c.s]=bySuit[c.s]||[]).push(c);});
-  const out=[];
-  hand.forEach(c=>out.push(classify([c])));
+  const out=hand.map(c=>classify([c]));
   for(const r in byRank){
     const g=byRank[r];
     if(g.length>=2)combinations(g,2).forEach(p=>out.push(classify(p)));
     if(g.length>=3)combinations(g,3).forEach(t=>out.push(classify(t)));
   }
   const fives=[];
-  // straights
-  for(let w=0;w<=7;w++){
-    const cols=[];let ok=true;
-    for(let r=w;r<w+5;r++){if(!byRank[r]){ok=false;break;}cols.push(byRank[r]);}
-    if(!ok)continue;
+  for(let w=0;w<=7;w++){ // straights: windows 3..7 through 10..A
+    const cols=[];
+    for(let r=w;r<w+5;r++){if(!byRank[r]){cols.length=0;break;}cols.push(byRank[r]);}
+    if(!cols.length)continue;
     let picks=[[]];
     for(const col of cols){
       const nx=[];
-      for(const p of picks)for(const c of col){nx.push([...p,c]);if(nx.length>240)break;}
+      for(const p of picks)for(const c of col)nx.push([...p,c]);
       picks=nx;
     }
-    picks.forEach(p=>fives.push(p));
+    fives.push(...picks);
   }
-  // flushes
   for(const s in bySuit){
     const g=bySuit[s];
     if(g.length>=5)combinations(g,5).forEach(f=>fives.push(f));
   }
-  // full houses + quads
   for(const r3 in byRank){
     const g3=byRank[r3];
-    if(g3.length>=3){
-      const triples=combinations(g3,3);
-      for(const r2 in byRank){
-        if(r2===r3)continue;
-        const g2=byRank[r2];
-        if(g2.length>=2){
-          const pairs=combinations(g2,2);
-          for(const t of triples)for(const p of pairs)fives.push([...t,...p]);
-        }
-      }
+    if(g3.length>=3)for(const r2 in byRank){
+      if(r2===r3||byRank[r2].length<2)continue;
+      for(const t of combinations(g3,3))for(const p of combinations(byRank[r2],2))fives.push([...t,...p]);
     }
-    if(g3.length===4){
-      hand.forEach(k=>{if(k.r!==+r3)fives.push([...g3,k]);});
-    }
+    if(g3.length===4)hand.forEach(k=>{if(k.r!==+r3)fives.push([...g3,k]);});
   }
   const seen=new Set();
   for(const f of fives){
     const key=f.map(val).sort((a,b)=>a-b).join(",");
-    if(seen.has(key))continue;seen.add(key);
-    const c=classify(f);
-    if(c)out.push(c);
+    if(!seen.has(key)){seen.add(key);out.push(classify(f));}
   }
-  return out.filter(Boolean);
+  return out;
 }
 
-/* ---------------- bot brain ---------------- */
+/* ---------------- bot ---------------- */
 function botChoose(seat){
   const hand=state.hands[seat];
   const combos=allCombos(hand);
   const current=state.current;
   const rankCount={};hand.forEach(c=>rankCount[c.r]=(rankCount[c.r]||0)+1);
   const minOpp=Math.min(...state.hands.map((h,i)=>i===seat?99:h.length));
-  const urgent=minOpp<=3;
+  const urgent=minOpp<=3; // someone is close to going out: stop being polite
 
   if(!current){
-    // leading: dump low, prefer bigger combos, avoid leading 2s early
+    // Leading: dump low cards, prefer bigger shapes, hold 2s early.
     let best=null,bestScore=Infinity;
     for(const c of combos){
-      if(state.firstMove&&!c.cards.some(x=>x.r===0&&x.s===0))continue;
+      if(state.firstMove&&!c.cards.some(isThreeD))continue;
       let score=c.cards.reduce((a,x)=>a+val(x),0)/c.size - c.size*7;
-      if(hand.length>4&&c.cards.some(x=>x.r===12))score+=120; // save 2s
-      if(c.size===hand.length)score-=1000; // going out
+      if(hand.length>4&&c.cards.some(x=>x.r===12))score+=120;
+      if(c.size===hand.length)score-=1000; // going out beats everything
       if(score<bestScore){bestScore=score;best=c;}
     }
-    return best; // leading always has at least a single
+    return best; // a leader always has at least a single
   }
 
-  // following
-  let opts=combos.filter(c=>beats(c,current));
+  const opts=combos.filter(c=>beats(c,current));
   if(!opts.length)return null;
-  // avoid breaking pairs/triples when playing singles
-  opts.sort((a,b)=>{
-    const pen=x=>{
-      let p=0;
-      if(x.size===1&&rankCount[x.cards[0].r]>=2)p+=10;
-      if(x.size===2&&rankCount[x.cards[0].r]>=3)p+=10;
-      return p;
-    };
-    return (a.cat*200+a.strength+pen(a))-(b.cat*200+b.strength+pen(b));
-  });
-  const pick=opts.find(o=>o.size===o.cards.length&&o.size===hand.length)||opts[0];
-  if(pick.size===hand.length)return pick; // wins the game
-  // discretion: don't burn 2s or big fives early
-  const burnsTwo=pick.cards.some(c=>c.r===12);
-  if(!urgent&&hand.length>6&&burnsTwo&&Math.random()<0.65)return null;
-  if(!urgent&&pick.size===1&&rankCount[pick.cards[0].r]>=2&&hand.length>7&&Math.random()<0.4)return null;
+  // Cheapest legal answer first; nudged away from breaking pairs/triples.
+  const wastePen=x=>
+    (x.size===1&&rankCount[x.cards[0].r]>=2)||(x.size===2&&rankCount[x.cards[0].r]>=3)?10:0;
+  opts.sort((a,b)=>(a.cat*200+a.strength+wastePen(a))-(b.cat*200+b.strength+wastePen(b)));
+  const winner=opts.find(o=>o.size===hand.length);
+  if(winner)return winner;
+  const pick=opts[0];
+  // Discretion: sometimes decline to burn a 2 or split a pair while the game is young.
+  if(!urgent&&hand.length>6&&pick.cards.some(c=>c.r===12)&&Math.random()<0.65)return null;
+  if(!urgent&&hand.length>7&&pick.size===1&&rankCount[pick.cards[0].r]>=2&&Math.random()<0.4)return null;
   return pick;
 }
 
-/* ---------------- game state ---------------- */
+/* ---------------- match: set scoring + persistence ---------------- */
 const NAMES=["You","Mei","Old Chan","Wing"];
 const MATCH_LEN=10;
-const PEN=n=>n===0?0:n*(n>=13?4:n>=10?3:n>=8?2:1);
-let state=null;
+const STORE="big2-match";
+// HK convention: 1x per card left, 2x at 8+, 3x at 10+, 4x for a full 13.
+const penalty=n=>n===0?0:n*(n>=13?4:n>=10?3:n>=8?2:1);
+
 function loadMatch(){
   try{
-    const m=JSON.parse(localStorage.getItem("big2-match"));
-    return m&&Array.isArray(m.scores)&&m.hand<MATCH_LEN?m:null;
+    const m=JSON.parse(localStorage.getItem(STORE));
+    const ok=m
+      &&Array.isArray(m.scores)&&m.scores.length===4&&m.scores.every(Number.isFinite)
+      &&Number.isInteger(m.hand)&&m.hand>=0&&m.hand<MATCH_LEN
+      &&Number.isInteger(m.lastWinner)&&m.lastWinner>=-1&&m.lastWinner<4;
+    return ok?m:null;
   }catch(e){return null;}
 }
-function saveMatch(){try{localStorage.setItem("big2-match",JSON.stringify(match));}catch(e){}}
+function saveMatch(){try{localStorage.setItem(STORE,JSON.stringify(match));}catch(e){}}
+function clearSavedMatch(){try{localStorage.removeItem(STORE);}catch(e){}}
 let match=loadMatch()||{scores:[0,0,0,0],hand:0,lastWinner:-1};
 function newMatch(){
   match={scores:[0,0,0,0],hand:0,lastWinner:-1};
@@ -358,27 +358,30 @@ function newMatch(){
   startHand();
 }
 
+/* ---------------- flow ---------------- */
+let state=null,ovTimer=null;
+
 function startHand(){
+  clearTimeout(state?.timer);
+  clearTimeout(ovTimer);
   const d=deck();
   const hands=[[],[],[],[]];
   d.forEach((c,i)=>hands[i%4].push(c));
   hands.forEach(h=>h.sort((a,b)=>val(a)-val(b)));
-  let leader=0,mustD=true;
-  if(match.lastWinner>=0){
-    leader=match.lastWinner;mustD=false;
-  }else{
-    hands.forEach((h,i)=>{if(h.some(c=>c.r===0&&c.s===0))leader=i;});
-  }
+  // 3♦ holder opens a set; after that, each hand's winner leads the next.
+  let leader,mustD;
+  if(match.lastWinner>=0){leader=match.lastWinner;mustD=false;}
+  else{leader=hands.findIndex(h=>h.some(isThreeD));mustD=true;}
   state={
     hands,turn:leader,current:null,owner:-1,
     firstMove:mustD,over:false,sel:new Set(),plays:[],animSeen:0,timer:null
   };
+  pileKey=handKey="!";
   overlay.classList.remove("show");
-  pileKey="!";
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN}`;
   setStatus(mustD
-    ?(leader===0?"You have the <b>3♦</b> — lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
-    :(leader===0?"You won the last hand — <b>lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
+    ?(leader===0?"You have the <b>3♦</b>. Lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
+    :(leader===0?"You won the last hand. <b>Lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
     leader===0);
   renderAll();
   if(leader!==0)queueBot();
@@ -392,7 +395,7 @@ function describe(c){
   if(c.size===1)return"single "+cname(c.cards[0]);
   if(c.size===2)return"pair of "+RANKS[c.cards[0].r]+"s";
   if(c.size===3)return"triple "+RANKS[c.cards[0].r]+"s";
-  return["a straight","a flush","a full house","four of a kind","a straight flush"][c.cat];
+  return FIVE_NAMES[c.cat];
 }
 
 function applyPlay(seat,combo){
@@ -401,8 +404,7 @@ function applyPlay(seat,combo){
   state.current=combo;state.owner=seat;state.firstMove=false;
   state.plays.push({seat,combo});
   if(seat===0)state.sel.clear();
-  renderAll();
-  if(h.length===0){endGame(seat);return;}
+  if(h.length===0){renderAll();endGame(seat);return;}
   advance();
 }
 function applyPass(seat){
@@ -412,34 +414,28 @@ function applyPass(seat){
 function advance(){
   state.turn=(state.turn+1)%4;
   if(state.turn===state.owner&&state.current){
-    // everyone passed: trick clears, owner leads
+    // Everyone passed: the trick clears and its owner leads fresh.
     state.current=null;state.owner=-1;
     fadePile();
-    setStatus(state.turn===0?"Everyone passed — <b>you lead</b>":`Table cleared — <b>${NAMES[state.turn]}</b> leads`,state.turn===0);
-  }else{
-    promptStatus();
-  }
-  renderAll();
-  if(state.turn!==0&&!state.over)queueBot();
-}
-function promptStatus(){
-  if(state.turn===0){
-    setStatus(state.current?`Your turn — beat the <b>${describe(state.current)}</b>`:"Your turn — <b>lead anything</b>",true);
+    setStatus(state.turn===0?"Everyone passed. <b>You lead</b>":`Table cleared. <b>${NAMES[state.turn]}</b> leads`,state.turn===0);
+  }else if(state.turn===0){
+    setStatus(state.current?`Your turn: beat the <b>${describe(state.current)}</b>`:"Your turn: <b>lead anything</b>",true);
   }else{
     setStatus(`<b>${NAMES[state.turn]}</b> is thinking…`);
   }
+  renderAll();
+  if(state.turn!==0)queueBot();
 }
 function queueBot(){
   clearTimeout(state.timer);
   state.timer=setTimeout(()=>{
     if(state.over)return;
-    const seat=state.turn;
-    const pick=botChoose(seat);
+    const pick=botChoose(state.turn);
     if(pick){
-      bubble(seat,describe(pick));
-      applyPlay(seat,pick);
+      bubble(state.turn,describe(pick));
+      applyPlay(state.turn,pick);
     }else{
-      applyPass(seat);
+      applyPass(state.turn);
     }
   },1250+Math.random()*750);
 }
@@ -448,27 +444,25 @@ function endGame(winner){
   clearTimeout(state.timer);
   match.lastWinner=winner;
   match.hand++;
-  const pens=state.hands.map(h=>PEN(h.length));
+  const pens=state.hands.map(h=>penalty(h.length));
   pens.forEach((p,i)=>match.scores[i]+=p);
   const done=match.hand>=MATCH_LEN;
-  if(done){try{localStorage.removeItem("big2-match");}catch(e){}}
-  else saveMatch();
+  done?clearSavedMatch():saveMatch();
+  // Stable sort: score ties keep seat order, so you win ties. House always loses here.
   const order=[0,1,2,3].sort((a,b)=>match.scores[a]-match.scores[b]);
-  if(done){
-    const champ=order[0];
-    ovTitle.textContent=champ===0?"You win the set!":`${NAMES[champ]} wins the set`;
-    ovTitle.classList.toggle("win",champ===0);
-    ovSub.textContent=`Final after ${MATCH_LEN} hands — lowest score wins`;
-  }else{
-    ovTitle.textContent=winner===0?"You win the hand!":`${NAMES[winner]} wins the hand`;
-    ovTitle.classList.toggle("win",winner===0);
-    ovSub.textContent=`Hand ${match.hand} of ${MATCH_LEN} — penalties this hand · total`;
-  }
+  const champ=order[0];
+  ovTitle.textContent=done
+    ?(champ===0?"You win the set!":`${NAMES[champ]} wins the set`)
+    :(winner===0?"You win the hand!":`${NAMES[winner]} wins the hand`);
+  ovTitle.classList.toggle("win",done?champ===0:winner===0);
+  ovSub.textContent=done
+    ?`Final after ${MATCH_LEN} hands · lowest score wins`
+    :`Hand ${match.hand} of ${MATCH_LEN} · penalties this hand · total`;
   ovRows.innerHTML=order.map((s,i)=>
     `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${pens[s]?"+"+pens[s]:"—"} · ${match.scores[s]}</span></div>`
   ).join("");
   btnAgain.textContent=done?"New set":"Next hand";
-  setTimeout(()=>overlay.classList.add("show"),700);
+  ovTimer=setTimeout(()=>overlay.classList.add("show"),700);
 }
 
 /* ---------------- rendering ---------------- */
@@ -485,7 +479,11 @@ const ovRows=document.getElementById("ovRows");
 const handNo=document.getElementById("handNo");
 const btnAgain=document.getElementById("btnAgain");
 
-function cardEl(c,small){
+const SUIT_NAMES=["diamonds","clubs","hearts","spades"];
+const RANK_NAMES=["3","4","5","6","7","8","9","10","jack","queen","king","ace","2"];
+const ariaName=c=>`${RANK_NAMES[c.r]} of ${SUIT_NAMES[c.s]}`;
+
+function cardEl(c){
   const d=document.createElement("div");
   d.className="card"+(RED.has(c.s)?" red":"");
   d.innerHTML=`<div class="cor">${RANKS[c.r]}<span>${SUITS[c.s]}</span></div><div class="pip">${SUITS[c.s]}</div>`;
@@ -496,7 +494,6 @@ function renderOpps(){
   for(let s=1;s<=3;s++){
     const d=document.createElement("div");
     d.className="opp"+(state.turn===s&&!state.over?" active":"");
-    d.id="opp"+s;
     const bub=state.bubble&&state.bubble.seat===s?state.bubble.text:"";
     d.innerHTML=`<div class="name">${NAMES[s]}</div><div class="count">${state.hands[s].length}<small>cards</small></div><div class="bubble${bub?" show":""}">${bub}</div>`;
     oppsEl.appendChild(d);
@@ -508,16 +505,17 @@ function bubble(seat,text){
   clearTimeout(state.bubbleTimer);
   state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
 }
-let pileGroups=[];
+
+/* The pile and the hand only rebuild when their content changes. This is what
+   lets CSS animations survive: a rebuild mid-animation destroys the nodes. */
 const pileKeyOf=()=>state.plays.length+"|"+state.plays.map(p=>p.seat).join(",")+"|"+(state.current?1:0);
 let pileKey="!";
 function renderPile(){
   const k=pileKeyOf();
-  if(k===pileKey)return; // nothing changed — don't rebuild and kill the animation
+  if(k===pileKey)return;
   pileKey=k;
-  // show last play prominently, one faded behind
   pileEl.innerHTML="";
-  const shown=state.plays.slice(-2);
+  const shown=state.plays.slice(-2); // newest play prominent, one faded behind
   shown.forEach((p,i)=>{
     const g=document.createElement("div");
     const last=i===shown.length-1;
@@ -525,7 +523,7 @@ function renderPile(){
     if(last&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
     const rot=((p.seat*47)%9)-4;
     g.style.transform=`rotate(${rot}deg) translateY(${last?0:-6}px)`;
-    p.combo.cards.forEach(c=>g.appendChild(cardEl(c,true)));
+    p.combo.cards.forEach(c=>g.appendChild(cardEl(c)));
     pileEl.appendChild(g);
   });
   state.animSeen=state.plays.length;
@@ -533,19 +531,33 @@ function renderPile(){
 function fadePile(){
   [...pileEl.children].forEach(g=>g.classList.add("gone"));
   state.plays=[];state.animSeen=0;
-  pileKey=pileKeyOf(); // let the fade-out play instead of instantly wiping
+  pileKey=pileKeyOf(); // skip the next rebuild so the fade-out can play
 }
+
+const handKeyOf=()=>state.hands[0].map(val).join(",")+"|"+[...state.sel].sort((a,b)=>a-b).join(",");
+let handKey="!";
 function renderHand(){
+  const k=handKeyOf();
+  if(k===handKey)return;
+  handKey=k;
   handEl.innerHTML="";
   state.hands[0].forEach((c,i)=>{
     const d=cardEl(c);
-    if(state.sel.has(i))d.classList.add("sel");
-    d.addEventListener("pointerdown",e=>{
-      e.preventDefault();
+    d.setAttribute("role","button");
+    d.setAttribute("tabindex","0");
+    d.setAttribute("aria-label",ariaName(c));
+    const setSel=on=>{d.classList.toggle("sel",on);d.setAttribute("aria-pressed",on);};
+    setSel(state.sel.has(i));
+    const toggle=()=>{
       if(state.over)return;
       state.sel.has(i)?state.sel.delete(i):state.sel.add(i);
-      d.classList.toggle("sel");
+      setSel(state.sel.has(i));
+      handKey=handKeyOf();
       updateButtons();
+    };
+    d.addEventListener("pointerdown",e=>{e.preventDefault();toggle();});
+    d.addEventListener("keydown",e=>{
+      if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}
     });
     handEl.appendChild(d);
   });
@@ -556,45 +568,37 @@ function selectedCombo(){
 }
 function updateButtons(){
   const myTurn=state.turn===0&&!state.over;
-  const combo=selectedCombo();
-  btnPlay.disabled=!(myTurn&&legal(combo,state.current,state.firstMove));
+  btnPlay.disabled=!(myTurn&&isLegal(selectedCombo(),state.current,state.firstMove));
   btnPass.disabled=!(myTurn&&state.current);
 }
 function renderAll(){
   renderOpps();renderPile();renderHand();updateButtons();
 }
 
-/* ---------------- input ---------------- */
+/* ---------------- input + boot ---------------- */
 btnPlay.addEventListener("click",()=>{
   const combo=selectedCombo();
-  if(state.turn!==0||!legal(combo,state.current,state.firstMove))return;
+  if(state.turn!==0||state.over||!isLegal(combo,state.current,state.firstMove))return;
   applyPlay(0,combo);
 });
 btnPass.addEventListener("click",()=>{
-  if(state.turn!==0||!state.current)return;
+  if(state.turn!==0||state.over||!state.current)return;
   state.sel.clear();
   applyPass(0);
 });
 document.getElementById("btnNew").addEventListener("click",()=>{
   const fresh=match.hand===0&&match.scores.every(s=>s===0);
-  if(fresh||confirm("Start a new set? Current scores will reset.")){
-    clearTimeout(state?.timer);
-    newMatch();
-  }
+  if(fresh||confirm("Start a new set? Current scores will reset."))newMatch();
 });
 btnAgain.addEventListener("click",()=>{
-  match.hand>=MATCH_LEN?newMatch():startHand();
+  if(match.hand>=MATCH_LEN)newMatch();else startHand();
 });
 
-startHand();
-</script>
-
-<script>
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  });
+if("serviceWorker" in navigator){
+  addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 }
+
+startHand();
 </script>
 </body>
 </html>
