@@ -34,7 +34,7 @@ Highest total after 10 hands wins the set. Ties break by most hands won, then mo
 
 ## Bots
 
-You play against Mei, Old Chan, and Wing. Three difficulty modes, selectable in-game and fully deterministic (no coin flips):
+You play against Kit, Chun, and Ming. Three difficulty modes, selectable in-game and fully deterministic (no coin flips):
 
 - **Easy** answers with the cheapest legal play, never passes by choice, and leads its lowest single.
 - **Medium** plays the cheapest legal answer but protects its 2s and intact pairs with fixed rules, and dumps low cards in big shapes when leading.
