@@ -123,7 +123,15 @@
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
   .hand .card.leaving{pointer-events:none;z-index:3}
-  .hand .card.flying{transition:transform .38s cubic-bezier(.4,0,.5,1), opacity .12s ease-in .28s;opacity:0}
+  /* A keyframe animation, not a transition: the destination is set in the same
+     tick the card is pinned, and transitions can be skipped when their rule and
+     their value change land in one style recalc. */
+  .hand .card.flying{animation:toss .42s cubic-bezier(.4,0,.5,1) forwards}
+  @keyframes toss{
+    0%{opacity:1}
+    70%{opacity:1}
+    100%{transform:translate(var(--tx),var(--ty)) scale(.88);opacity:0}
+  }
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -882,14 +890,12 @@ function animateHandPlay(){
     c.style.transform="none";
     c.style.left=(r.left-box.left)+"px";
     c.style.top=(r.top-box.top)+"px";
-    c.classList.add("leaving"); // synchronous: renderHand must see it this tick
-    // Then send it to the middle of the table, from wherever in the hand it was.
+    // Destination: the middle of the table, from wherever in the hand it sat.
     const dx=(pile.left+pile.width/2)-(r.left+r.width/2);
     const dy=(pile.top+pile.height/2)-(r.top+r.height/2);
-    raf(()=>{
-      c.classList.add("flying");
-      c.style.transform=`translate(${dx}px,${dy}px) scale(.9)`;
-    });
+    c.style.setProperty("--tx",dx+"px");
+    c.style.setProperty("--ty",dy+"px");
+    c.classList.add("leaving","flying"); // synchronous: renderHand must see it this tick
   });
   cards.forEach((c,i)=>{ // survivors: start at the old spot, ease to the new one
     if(going.includes(c))return;
