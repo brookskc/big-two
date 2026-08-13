@@ -45,6 +45,8 @@
     font:inherit;font-size:12px;padding:6px 12px;border-radius:99px;
   }
   .newgame:active{color:var(--paper);border-color:var(--muted)}
+  .hright{display:flex;align-items:center;gap:10px}
+  .handno{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 
   /* opponents */
   .opps{display:flex;justify-content:space-around;padding:4px 10px 0;gap:8px}
@@ -143,7 +145,7 @@
 
 <header>
   <div class="brand"><span class="zh">大老二</span>Big Two</div>
-  <button class="newgame" id="btnNew">New game</button>
+  <div class="hright"><span class="handno" id="handNo"></span><button class="newgame" id="btnNew">New set</button></div>
 </header>
 
 <div class="opps" id="opps"></div>
@@ -331,23 +333,44 @@ function botChoose(seat){
 
 /* ---------------- game state ---------------- */
 const NAMES=["You","Mei","Old Chan","Wing"];
+const MATCH_LEN=10;
+const PEN=n=>n===0?0:n*(n>=13?4:n>=10?3:n>=8?2:1);
 let state=null;
+function loadMatch(){
+  try{
+    const m=JSON.parse(localStorage.getItem("big2-match"));
+    return m&&Array.isArray(m.scores)&&m.hand<MATCH_LEN?m:null;
+  }catch(e){return null;}
+}
+function saveMatch(){try{localStorage.setItem("big2-match",JSON.stringify(match));}catch(e){}}
+let match=loadMatch()||{scores:[0,0,0,0],hand:0,lastWinner:-1};
+function newMatch(){
+  match={scores:[0,0,0,0],hand:0,lastWinner:-1};
+  saveMatch();
+  startHand();
+}
 
-function newGame(){
+function startHand(){
   const d=deck();
   const hands=[[],[],[],[]];
   d.forEach((c,i)=>hands[i%4].push(c));
   hands.forEach(h=>h.sort((a,b)=>val(a)-val(b)));
-  let leader=0;
-  hands.forEach((h,i)=>{if(h.some(c=>c.r===0&&c.s===0))leader=i;});
+  let leader=0,mustD=true;
+  if(match.lastWinner>=0){
+    leader=match.lastWinner;mustD=false;
+  }else{
+    hands.forEach((h,i)=>{if(h.some(c=>c.r===0&&c.s===0))leader=i;});
+  }
   state={
     hands,turn:leader,current:null,owner:-1,
-    firstMove:true,over:false,sel:new Set(),plays:[],timer:null
+    firstMove:mustD,over:false,sel:new Set(),plays:[],timer:null
   };
   overlay.classList.remove("show");
-  setStatus(leader===0
-    ?"You have the <b>3♦</b> — lead with it"
-    :`<b>${NAMES[leader]}</b> has the 3♦ and leads`);
+  handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN}`;
+  setStatus(mustD
+    ?(leader===0?"You have the <b>3♦</b> — lead with it":`<b>${NAMES[leader]}</b> has the 3♦ and leads`)
+    :(leader===0?"You won the last hand — <b>lead anything</b>":`<b>${NAMES[leader]}</b> won the last hand and leads`),
+    leader===0);
   renderAll();
   if(leader!==0)queueBot();
 }
@@ -414,13 +437,28 @@ function queueBot(){
 function endGame(winner){
   state.over=true;
   clearTimeout(state.timer);
-  const order=[0,1,2,3].sort((a,b)=>state.hands[a].length-state.hands[b].length);
-  ovTitle.textContent=winner===0?"You win!":`${NAMES[winner]} wins`;
-  ovTitle.classList.toggle("win",winner===0);
-  ovSub.textContent=winner===0?"Clean sweep. Deal another?":"Cards left on the table:";
+  match.lastWinner=winner;
+  match.hand++;
+  const pens=state.hands.map(h=>PEN(h.length));
+  pens.forEach((p,i)=>match.scores[i]+=p);
+  const done=match.hand>=MATCH_LEN;
+  if(done){try{localStorage.removeItem("big2-match");}catch(e){}}
+  else saveMatch();
+  const order=[0,1,2,3].sort((a,b)=>match.scores[a]-match.scores[b]);
+  if(done){
+    const champ=order[0];
+    ovTitle.textContent=champ===0?"You win the set!":`${NAMES[champ]} wins the set`;
+    ovTitle.classList.toggle("win",champ===0);
+    ovSub.textContent=`Final after ${MATCH_LEN} hands — lowest score wins`;
+  }else{
+    ovTitle.textContent=winner===0?"You win the hand!":`${NAMES[winner]} wins the hand`;
+    ovTitle.classList.toggle("win",winner===0);
+    ovSub.textContent=`Hand ${match.hand} of ${MATCH_LEN} — penalties this hand · total`;
+  }
   ovRows.innerHTML=order.map((s,i)=>
-    `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${state.hands[s].length===0?"out first":state.hands[s].length+" left"}</span></div>`
+    `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${pens[s]?"+"+pens[s]:"—"} · ${match.scores[s]}</span></div>`
   ).join("");
+  btnAgain.textContent=done?"New set":"Next hand";
   setTimeout(()=>overlay.classList.add("show"),700);
 }
 
@@ -435,6 +473,8 @@ const overlay=document.getElementById("overlay");
 const ovTitle=document.getElementById("ovTitle");
 const ovSub=document.getElementById("ovSub");
 const ovRows=document.getElementById("ovRows");
+const handNo=document.getElementById("handNo");
+const btnAgain=document.getElementById("btnAgain");
 
 function cardEl(c,small){
   const d=document.createElement("div");
@@ -518,10 +558,18 @@ btnPass.addEventListener("click",()=>{
   state.sel.clear();
   applyPass(0);
 });
-document.getElementById("btnNew").addEventListener("click",()=>{clearTimeout(state?.timer);newGame();});
-document.getElementById("btnAgain").addEventListener("click",()=>newGame());
+document.getElementById("btnNew").addEventListener("click",()=>{
+  const fresh=match.hand===0&&match.scores.every(s=>s===0);
+  if(fresh||confirm("Start a new set? Current scores will reset.")){
+    clearTimeout(state?.timer);
+    newMatch();
+  }
+});
+btnAgain.addEventListener("click",()=>{
+  match.hand>=MATCH_LEN?newMatch():startHand();
+});
 
-newGame();
+startHand();
 </script>
 
 <script>
