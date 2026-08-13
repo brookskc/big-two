@@ -9,14 +9,41 @@ const fs = require("fs");
 const html = fs.readFileSync(__dirname + "/index.html", "utf8");
 const script = html.match(/<script>\n"use strict";([\s\S]*?)<\/script>/)[1];
 
-const el = () => ({
-  innerHTML: "", textContent: "",
-  classList: { add(){}, remove(){}, toggle(){}, contains: () => false },
-  setAttribute(){}, addEventListener(){}, appendChild(){}, querySelector: () => null,
-  style: { setProperty(){} }, children: [], dataset: {}, remove(){}
-});
+/* Minimal DOM: enough that class marking, child lists, and querySelector behave
+   like the browser, so render guards can be tested rather than assumed. */
+function el() {
+  const classes = new Set();
+  const node = {
+    textContent: "", children: [], parent: null, dataset: {},
+    style: { setProperty(){} },
+    classList: {
+      add: (...c) => c.forEach(x => classes.add(x)),
+      remove: (...c) => c.forEach(x => classes.delete(x)),
+      toggle: (c, on) => (on === undefined ? (classes.has(c) ? classes.delete(c) : classes.add(c)) : on ? classes.add(c) : classes.delete(c)),
+      contains: (c) => classes.has(c)
+    },
+    setAttribute(){}, addEventListener(){},
+    appendChild(c) { c.parent = node; node.children.push(c); return c; },
+    remove() { const p = node.parent; if (p) p.children = p.children.filter(c => c !== node); },
+    querySelector(sel) { return node.children.find(c => c.classList.contains(sel.replace(".", ""))) || null; },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 52, height: 74 })
+  };
+  Object.defineProperty(node, "innerHTML", {
+    get: () => "", set: (v) => { if (v === "") node.children = []; }
+  });
+  return node;
+}
 const stubs = {
-  document: { getElementById: () => el(), createElement: () => el(), body: el(), querySelector: () => el() },
+  document: (() => {
+    const byId = {};
+    return {
+      getElementById: (id) => (byId[id] = byId[id] || el()),
+      createElement: () => el(),
+      body: el(),
+      querySelector: () => el(),
+      _byId: byId
+    };
+  })(),
   localStorage: { getItem: () => null, setItem(){}, removeItem(){} },
   confirm: () => true,
   matchMedia: () => ({ matches: true }),
@@ -41,7 +68,7 @@ const G = eval(script + `
 ;({
   classify, beats, isLegal, unseenHigher, botChoose,
   newMatch, startHand, applyPlay, applyPass,
-  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val,
+  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, animateHandPlay,
   get match(){ return match; },
   get state(){ return state; },
   set state(v){ state = v; },
@@ -135,6 +162,24 @@ G.newMatch();
   hand.splice(0, 1);                          // now remove the selected card itself
   check("a card that leaves the hand drops out of the selection", G.selectedCombo() === null);
   G.state.sel.clear();
+}
+
+// --- play animation (regression: the hand must not be rebuilt out from under a departing card) ---
+console.log("play animation");
+G.newMatch();
+{
+  const handEl = global.document._byId.hand;
+  const realTimeout = global.setTimeout;
+  global.setTimeout = () => ({});             // hold the deferred cleanup so we can inspect mid-flight
+  const before = handEl.children.length;
+  handEl.children[0].classList.add("sel");    // pretend the first card is raised
+  G.animateHandPlay();
+  check("the departing card is marked in the same tick", !!handEl.querySelector(".leaving"));
+  G.state.hands[0].shift();                   // the model moves on, as applyPlay would
+  G.renderHand();
+  check("renderHand leaves the departing card alone",
+    handEl.children.length === before && !!handEl.querySelector(".leaving"));
+  global.setTimeout = realTimeout;
 }
 
 // --- persistence guards ------------------------------------------------------------

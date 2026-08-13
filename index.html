@@ -122,7 +122,8 @@
   .hand .card{margin-left:-26px;transition:transform .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
-  .hand .card.leaving{transition:transform .38s cubic-bezier(.4,0,.5,1), opacity .12s ease-in .28s;opacity:0;pointer-events:none;z-index:3}
+  .hand .card.leaving{pointer-events:none;z-index:3}
+  .hand .card.flying{transition:transform .38s cubic-bezier(.4,0,.5,1), opacity .12s ease-in .28s;opacity:0}
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -864,7 +865,7 @@ function deselectAll(){
 /* Playing cards: take the played ones out of the layout so the hand closes
    immediately, then slide the survivors from where they were to where they
    now sit (a FLIP). Without this the gap snaps shut on the next rebuild. */
-const LEAVE_MS=400;
+const LEAVE_MS=460;
 function animateHandPlay(){
   const cards=[...handEl.children];
   if(!cards.length||typeof handEl.getBoundingClientRect!=="function")return;
@@ -881,11 +882,12 @@ function animateHandPlay(){
     c.style.transform="none";
     c.style.left=(r.left-box.left)+"px";
     c.style.top=(r.top-box.top)+"px";
+    c.classList.add("leaving"); // synchronous: renderHand must see it this tick
     // Then send it to the middle of the table, from wherever in the hand it was.
     const dx=(pile.left+pile.width/2)-(r.left+r.width/2);
     const dy=(pile.top+pile.height/2)-(r.top+r.height/2);
     raf(()=>{
-      c.classList.add("leaving");
+      c.classList.add("flying");
       c.style.transform=`translate(${dx}px,${dy}px) scale(.9)`;
     });
   });
