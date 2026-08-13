@@ -52,7 +52,7 @@
   }
 
   /* opponents */
-  .opps{display:flex;justify-content:space-around;padding:4px 10px 0;gap:8px}
+  .opps{display:flex;justify-content:space-around;padding:4px 10px 12px;gap:8px}
   .opp:first-child,.opp:last-child{transform:translateY(12px)} /* seated round the table */
   .opp{
     flex:1;max-width:120px;text-align:center;padding:8px 4px 9px;border-radius:12px;
@@ -65,7 +65,7 @@
   .opp .count small{font-size:10px;font-weight:500;color:var(--muted);margin-left:3px}
   .opp .oscore{font-size:10px;color:var(--muted);margin-top:1px;font-variant-numeric:tabular-nums}
   .opp .chip{
-    position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);
+    position:absolute;left:50%;bottom:-16px;transform:translateX(-50%);
     font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;
     white-space:nowrap;pointer-events:none;animation:chipLife 1.7s ease-out forwards;
   }
