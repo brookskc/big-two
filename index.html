@@ -758,12 +758,15 @@ function renderPile(){
     const g=document.createElement("div");
     const last=i===shown.length-1;
     g.className="play-group";
-    // Dim the previous play a frame after insertion so the fade transitions
-    // instead of cutting — elements created with the class render dark instantly.
-    if(!(last&&state.current))raf(()=>g.classList.add("old"));
     if(last&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
     const rot=((p.seat*47)%5)-2; // whisper of a group tilt
-    g.style.transform=`rotate(${rot}deg) translateY(${last?0:-6}px)`;
+    g.style.transform=`rotate(${rot}deg)`; // start where it landed
+    // Dim and lift the previous play a frame after insertion so both fade and
+    // drift transition — created with final styles, they'd cut instead.
+    if(!(last&&state.current))raf(()=>{
+      g.classList.add("old");
+      g.style.transform=`rotate(${rot}deg) translateY(-6px)`;
+    });
     p.combo.cards.forEach((c,j)=>{
       const d=cardEl(c);
       // each card lands with its own small twist and drop, like a real toss
