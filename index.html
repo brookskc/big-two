@@ -72,6 +72,14 @@
   .play-group{position:absolute;display:flex;transition:opacity .35s, transform .35s}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
+  .play-group.fly0{animation:fly0 .42s cubic-bezier(.2,.8,.3,1)}
+  .play-group.fly1{animation:fly1 .42s cubic-bezier(.2,.8,.3,1)}
+  .play-group.fly2{animation:fly2 .42s cubic-bezier(.2,.8,.3,1)}
+  .play-group.fly3{animation:fly3 .42s cubic-bezier(.2,.8,.3,1)}
+  @keyframes fly0{from{transform:translate(0,160px) scale(.9);opacity:0}}
+  @keyframes fly1{from{transform:translate(-140px,-120px) scale(.9);opacity:0}}
+  @keyframes fly2{from{transform:translate(0,-120px) scale(.9);opacity:0}}
+  @keyframes fly3{from{transform:translate(140px,-120px) scale(.9);opacity:0}}
   .status{
     margin-top:14px;font-size:13px;color:var(--muted);text-align:center;min-height:18px;padding:0 24px;
   }
@@ -363,7 +371,7 @@ function startHand(){
   }
   state={
     hands,turn:leader,current:null,owner:-1,
-    firstMove:mustD,over:false,sel:new Set(),plays:[],timer:null
+    firstMove:mustD,over:false,sel:new Set(),plays:[],animSeen:0,timer:null
   };
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN}`;
@@ -432,7 +440,7 @@ function queueBot(){
     }else{
       applyPass(seat);
     }
-  },650+Math.random()*450);
+  },1250+Math.random()*750);
 }
 function endGame(winner){
   state.over=true;
@@ -497,7 +505,7 @@ function bubble(seat,text){
   state.bubble={seat,text};
   renderOpps();
   clearTimeout(state.bubbleTimer);
-  state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1200);
+  state.bubbleTimer=setTimeout(()=>{state.bubble=null;renderOpps();},1700);
 }
 let pileGroups=[];
 function renderPile(){
@@ -508,15 +516,17 @@ function renderPile(){
     const g=document.createElement("div");
     const last=i===shown.length-1;
     g.className="play-group"+(last&&state.current?"":" old");
+    if(last&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
     const rot=((p.seat*47)%9)-4;
     g.style.transform=`rotate(${rot}deg) translateY(${last?0:-6}px)`;
     p.combo.cards.forEach(c=>g.appendChild(cardEl(c,true)));
     pileEl.appendChild(g);
   });
+  state.animSeen=state.plays.length;
 }
 function fadePile(){
   [...pileEl.children].forEach(g=>g.classList.add("gone"));
-  state.plays=[];
+  state.plays=[];state.animSeen=0;
 }
 function renderHand(){
   handEl.innerHTML="";
