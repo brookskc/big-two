@@ -436,7 +436,7 @@ function hardChoose(opts,current,hand,urgent,minOpp){
 /* ---------------- match: set scoring + persistence ---------------- */
 const NAMES=["You","Mei","Old Chan","Wing"];
 const MATCH_LEN=10;
-const STORE="big2-match";
+const STORE="big2-match-v2"; // v2: settlement scoring (old saves are penalty-style)
 // HK convention: 1x per card left, 2x at 8+, 3x at 10+, 4x for a full 13.
 const penalty=n=>n===0?0:n*(n>=13?4:n>=10?3:n>=8?2:1);
 
@@ -549,25 +549,29 @@ function endGame(winner){
   match.wins[winner]++;
   match.lastWon[winner]=match.hand;
   match.hand++;
+  // Settlement: each loser pays the winner for their cards left. Zero-sum.
   const pens=state.hands.map(h=>penalty(h.length));
-  pens.forEach((p,i)=>match.scores[i]+=p);
+  const delta=pens.map((p,i)=>i===winner?pens.reduce((a,b)=>a+b,0):-p);
+  delta.forEach((d,i)=>match.scores[i]+=d);
   const done=match.hand>=MATCH_LEN;
   done?clearSavedMatch():saveMatch();
-  // Tiebreak chain: lowest score, then most hands won, then most recent hand won.
+  // Tiebreak chain: highest score, then most hands won, then most recent hand won.
   const order=[0,1,2,3].sort((a,b)=>
-    match.scores[a]-match.scores[b]||match.wins[b]-match.wins[a]||match.lastWon[b]-match.lastWon[a]);
+    match.scores[b]-match.scores[a]||match.wins[b]-match.wins[a]||match.lastWon[b]-match.lastWon[a]);
   const champ=order[0];
   ovTitle.textContent=done
     ?(champ===0?"You win the set!":`${NAMES[champ]} wins the set`)
     :(winner===0?"You win the hand!":`${NAMES[winner]} wins the hand`);
   ovTitle.classList.toggle("win",done?champ===0:winner===0);
   ovSub.textContent=done
-    ?`Final after ${MATCH_LEN} hands · lowest score wins`
-    :`Hand ${match.hand} of ${MATCH_LEN} · penalties this hand · total`;
+    ?`Final after ${MATCH_LEN} hands · highest score wins`
+    :`Hand ${match.hand} of ${MATCH_LEN} · this hand · running total`;
+  const signed=n=>(n<0?"−":"+")+Math.abs(n);
+  const total=n=>n<0?"−"+(-n):String(n);
   ovRows.innerHTML=order.map((s,i)=>{
     const right=done
-      ?`${match.scores[s]} pts · ${match.wins[s]} won`
-      :`${pens[s]?"+"+pens[s]:"·"} · ${match.scores[s]}`;
+      ?`${total(match.scores[s])} pts · ${match.wins[s]} won`
+      :`${signed(delta[s])} · ${total(match.scores[s])}`;
     return `<div class="row ${i===0?"first":""}"><span class="left">${NAMES[s]}</span><span class="right">${right}</span></div>`;
   }).join("");
   btnAgain.textContent=done?"New set":"Next hand";
