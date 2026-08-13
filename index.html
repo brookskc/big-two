@@ -805,6 +805,16 @@ function renderHand(){
     handEl.appendChild(d);
   });
 }
+/* Deselect by animating the existing cards back down (removing the class
+   lets the transform transition play), rather than rebuilding the hand,
+   which would teleport them. */
+function deselectAll(){
+  if(!state.sel.size)return;
+  state.sel.clear();
+  [...handEl.children].forEach(d=>{d.classList.remove("sel");d.setAttribute("aria-pressed",false);});
+  ui.handKey=handKeyOf(); // in sync, so the next render skips the rebuild
+  updateButtons();
+}
 function selectedCombo(){
   const cards=[...state.sel].map(i=>state.hands[0][i]);
   return cards.length?classify(cards):null;
@@ -827,7 +837,7 @@ btnPlay.addEventListener("click",()=>{
 });
 btnPass.addEventListener("click",()=>{
   if(state.turn!==0||state.over||!state.current)return;
-  state.sel.clear();
+  deselectAll();
   applyPass(0);
 });
 document.getElementById("btnNew").addEventListener("click",()=>{
@@ -845,9 +855,7 @@ const helpOverlay=document.getElementById("helpOverlay");
 document.getElementById("btnHelp").addEventListener("click",()=>helpOverlay.classList.add("show"));
 document.getElementById("btnHelpClose").addEventListener("click",()=>helpOverlay.classList.remove("show"));
 helpOverlay.addEventListener("click",e=>{if(e.target===helpOverlay)helpOverlay.classList.remove("show")});
-document.querySelector(".table").addEventListener("pointerdown",()=>{
-  if(state.sel.size){state.sel.clear();renderHand();updateButtons();}
-});
+document.querySelector(".table").addEventListener("pointerdown",deselectAll);
 
 if("serviceWorker" in navigator){
   addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
