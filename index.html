@@ -83,7 +83,7 @@
   .play-group{position:absolute;display:flex;transition:opacity .5s ease, transform .35s, filter .5s ease}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
-  .play-group.arrive{animation:arrive .1s ease-out .32s backwards} /* uncovered as the hand cards land on it */
+  .play-group.arrive{animation:arrive .12s ease-out .38s backwards} /* uncovered only once the hand cards have landed */
   @keyframes arrive{from{opacity:0}}
   .play-group.fly1{animation:fly1 .42s cubic-bezier(.2,.8,.3,1)}
   .play-group.fly2{animation:fly2 .42s cubic-bezier(.2,.8,.3,1)}
@@ -126,7 +126,7 @@
   /* A keyframe animation, not a transition: the destination is set in the same
      tick the card is pinned, and transitions can be skipped when their rule and
      their value change land in one style recalc. */
-  .hand .card.flying{animation:toss .4s cubic-bezier(.4,0,.5,1) forwards}
+  .hand .card.flying{animation:toss .38s cubic-bezier(.33,0,.3,1) forwards}
   @keyframes toss{
     to{transform:translate(var(--tx),var(--ty)) rotate(var(--rot,0deg)) scale(var(--sc,.885))}
   }
@@ -976,6 +976,7 @@ function renderPile(){
       const jr=((p.seat*31+j*17)%7)-3;
       const jy=((p.seat*13+j*11)%5)-2;
       d.style.transform=`rotate(${jr}deg) translateY(${jy}px)`;
+      d.dataset.rot=rot+jr; // total tilt on screen, for cards flying in to match
       g.appendChild(d);
     });
     pileEl.appendChild(g);
@@ -1033,7 +1034,7 @@ function deselectAll(){
 /* Playing cards: take the played ones out of the layout so the hand closes
    immediately, then slide the survivors from where they were to where they
    now sit (a FLIP). Without this the gap snaps shut on the next rebuild. */
-const LEAVE_MS=460;
+const LEAVE_MS=520; // flight (380) + the reveal underneath it (120), then swap
 /* Playing is two steps. First the raised cards are pinned out of the layout so
    the hand closes immediately (a FLIP on the survivors). Then, once the play has
    been drawn on the table, each pinned card is aimed at its own counterpart
@@ -1069,19 +1070,30 @@ function liftPlayedCards(){
 function launchPlayedCards(flight){
   if(!flight)return;
   const {going,from}=flight;
+  const retire=()=>{going.forEach(c=>c.remove());renderHand();};
+  // With motion turned off there's no flight to watch, so don't leave a
+  // duplicate card sitting on the table waiting for one.
+  if(typeof matchMedia==="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches)return retire();
   const group=pileEl.children[pileEl.children.length-1];
   const targets=group?[...group.children]:[];
   going.forEach((c,i)=>{
-    const t=targets[i]&&targets[i].getBoundingClientRect();
+    const el=targets[i];
+    const t=el&&el.getBoundingClientRect();
     if(t&&t.width){
+      // Centre to centre: rotation and scale pivot on the centre, so this
+      // delta stays exact whatever tilt the card ends up at.
       c.style.setProperty("--tx",((t.left+t.width/2)-(from[i].left+from[i].width/2))+"px");
       c.style.setProperty("--ty",((t.top+t.height/2)-(from[i].top+from[i].height/2))+"px");
-      c.style.setProperty("--sc",(t.width/from[i].width).toFixed(3));
+      // Layout widths, not bounding boxes: a tilted card's box is wider than
+      // the card, which would land it oversized.
+      const scale=el.offsetWidth/c.offsetWidth;
+      if(scale>0)c.style.setProperty("--sc",scale.toFixed(4));
+      if(el.dataset.rot!==undefined)c.style.setProperty("--rot",el.dataset.rot+"deg");
     }
     c.classList.add("flying");
   });
   clearTimeout(ui.handTimer);
-  ui.handTimer=setTimeout(()=>{going.forEach(c=>c.remove());renderHand();},LEAVE_MS);
+  ui.handTimer=setTimeout(retire,LEAVE_MS);
 }
 function selectedCombo(){
   const cards=state.hands[0].filter(c=>state.sel.has(val(c)));

@@ -259,6 +259,20 @@ console.log("sound");
   global.localStorage.setItem = () => {};
 }
 
+// --- card flight timing (regression: the table must not reveal a card mid-flight) ---
+console.log("card flight");
+{
+  const num = (re) => { const m = html.match(re); return m ? parseFloat(m[1]) : NaN; };
+  const flight = num(/\.hand \.card\.flying\{animation:toss ([\d.]+)s/);
+  const revealAt = num(/\.play-group\.arrive\{animation:arrive [\d.]+s [^;]*? ([\d.]+)s backwards/);
+  const revealFor = num(/\.play-group\.arrive\{animation:arrive ([\d.]+)s/);
+  const retireAt = num(/const LEAVE_MS=(\d+)/) / 1000;
+  check("flight and reveal timings are declared", [flight, revealAt, revealFor, retireAt].every(Number.isFinite));
+  check("the table reveals the card only once the flight has landed", revealAt >= flight);
+  check("the flying card is retired only after the card beneath is opaque",
+    retireAt >= revealAt + revealFor);
+}
+
 // --- persistence guards ------------------------------------------------------------
 console.log("persistence");
 global.localStorage.getItem = () => JSON.stringify({ scores: ["a"], hand: 0, lastWinner: -1 });
