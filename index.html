@@ -83,7 +83,7 @@
   .play-group{position:absolute;display:flex;transition:opacity .5s ease, transform .35s, filter .5s ease}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
-  .play-group.arrive{animation:arrive .22s ease-out .3s backwards} /* waits for the hand cards to land */
+  .play-group.arrive{animation:arrive .1s ease-out .32s backwards} /* uncovered as the hand cards land on it */
   @keyframes arrive{from{opacity:0}}
   .play-group.fly1{animation:fly1 .42s cubic-bezier(.2,.8,.3,1)}
   .play-group.fly2{animation:fly2 .42s cubic-bezier(.2,.8,.3,1)}
@@ -126,11 +126,9 @@
   /* A keyframe animation, not a transition: the destination is set in the same
      tick the card is pinned, and transitions can be skipped when their rule and
      their value change land in one style recalc. */
-  .hand .card.flying{animation:toss .42s cubic-bezier(.4,0,.5,1) forwards}
+  .hand .card.flying{animation:toss .4s cubic-bezier(.4,0,.5,1) forwards}
   @keyframes toss{
-    0%{opacity:1}
-    70%{opacity:1}
-    100%{transform:translate(var(--tx),var(--ty)) scale(.88);opacity:0}
+    to{transform:translate(var(--tx),var(--ty)) rotate(var(--rot,0deg)) scale(var(--sc,.885))}
   }
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
@@ -180,6 +178,13 @@
   .confetti{position:fixed;inset:0;pointer-events:none;z-index:11;overflow:hidden}
   .confetti span{position:absolute;top:-6vh;animation:fall linear forwards}
   @keyframes fall{to{transform:translateY(112vh) rotate(560deg);opacity:.85}}
+  #home .panel{padding:34px 28px 26px}
+  .hometitle{font-family:ui-serif,"New York",Georgia,serif;font-size:27px;margin-bottom:6px}
+  .hometitle .zh{color:var(--gold);margin-right:8px;font-weight:600}
+  .homesub{color:var(--muted);font-size:12.5px;margin-bottom:20px}
+  #home .seg{justify-content:center;margin-bottom:20px}
+  #home .seg button{flex:1;padding:9px 0;font-size:12px}
+  #home .btn{margin-bottom:12px}
   .rules{text-align:left;font-size:13px;line-height:1.5;margin-bottom:18px}
   .rules p{margin:0 0 9px;color:var(--muted)}
   .rules p:last-child{margin-bottom:0}
@@ -215,13 +220,20 @@
     <button class="btn play" id="btnPlay">Play</button>
   </div>
   <div class="footrow">
-    <div class="leftrow">
-      <button class="howto" id="btnHelp">How to play</button>
-      <button class="snd" id="btnSound" aria-label="Toggle sound"></button>
-    </div>
+    <button class="howto" id="btnHelp">How to play</button>
+    <button class="snd" id="btnSound" aria-label="Toggle sound"></button>
+  </div>
+</div>
+
+<div class="overlay show" id="home">
+  <div class="panel">
+    <div class="hometitle"><span class="zh">大老二</span>Big Two</div>
+    <div class="homesub" id="homeRecord"></div>
     <div class="seg" id="seg" role="group" aria-label="Bot difficulty">
       <button data-d="easy">Easy</button><button data-d="medium">Medium</button><button data-d="hard">Hard</button>
     </div>
+    <button class="btn play" id="btnStart">Deal</button>
+    <button class="howto" id="btnHelpHome">How to play</button>
   </div>
 </div>
 
@@ -369,9 +381,9 @@ function allCombos(hand){
              and leads its lowest single
      medium  cheapest legal play, but protects 2s and intact pairs with
              fixed rules, and dumps low cards in big shapes when leading
-     hard    evaluates the whole hand: greedy partition into fewest plays,
-             control-card valuation, and a fixed structural-damage threshold
-             for choosing to pass */
+     hard    evaluates every option by the hand it would leave behind: greedy
+             partition into fewest plays, a cost for hoarding, and control
+             valued by what is still unseen. Always plays when it legally can */
 
 let difficulty=loadDifficulty();
 function loadDifficulty(){
@@ -387,19 +399,18 @@ function setDifficulty(d){
 /* All bot tuning in one place. */
 const BOT={
   TURN_W:24,     // value of needing one fewer play to go out
-  HOLD_W:3,      // per-card cost of hoarding (multiplier scoring punishes it)
-  TEMPO_BASE:4,  // base cost of passing…
-  TEMPO_SLOPE:2, // …growing as the shortest opposing hand shrinks
+  HOLD_W:6,      // per-card cost of hoarding (multiplier scoring punishes it)
   SAVE_TWOS:120, // medium: reluctance to lead a 2 early
   LEAD_SIZE:7,   // medium: preference for leading bigger shapes
   WASTE:10,      // medium: penalty for breaking a pair or triple
   EVAL_CAP:24,   // hard: candidate options evaluated per move
-  BOSS:[46,26,14,7] // hard: control value when 0/1/2/3 higher cards remain unseen
+  BOSS:[12,6,3,1] // hard: control value when 0/1/2/3 higher cards remain unseen
 };
 
-/* Static control value: how much winning power a card carries on paper.
-   2s dominate, aces matter, kings a little, everything else is cargo. */
-const controlValue=v=>v>=48?30+(v-48)*4:v>=44?12+(v-44)*2:v>=40?3+(v-40):0;
+/* Static control value: what a card is worth on paper before counting. Kept
+   small on purpose — overvaluing high cards makes a bot hoard, and hoarding
+   loses under settlement scoring. */
+const controlValue=v=>v>=48?8+(v-48):v>=44?3:0;
 
 /* Greedy partition: roughly the fewest plays needed to empty a hand,
    taking the biggest cheapest shapes first. Cached: hard mode evaluates
@@ -507,12 +518,9 @@ function hardChoose(opts,current,hand,urgent,minOpp){
     if(!current&&minOpp<=2&&o.size>1)s+=30; // lead shapes a near-empty hand can't answer
     if(s>bestScore){bestScore=s;best=o;}
   }
-  if(current&&!urgent){
-    // Passing keeps the hand intact but forfeits tempo, and tempo gets
-    // dearer as the shortest opposing hand shrinks.
-    const tempo=BOT.TEMPO_BASE+Math.max(0,10-minOpp)*BOT.TEMPO_SLOPE;
-    if(bestScore<hardScore(hand,[])-tempo)return null;
-  }
+  // Hard never passes by choice. Shedding wins under settlement scoring, and
+  // measurement is unambiguous: a version that passed to protect its hand
+  // finished behind both easier bots. Its edge is which play it picks.
   return best;
 }
 
@@ -986,7 +994,7 @@ const handKeyOf=()=>state.hands[0].map(val).join(",")+"|"+[...state.sel].sort((a
 function renderHand(){
   const k=handKeyOf();
   if(k===ui.handKey)return;
-  if(handEl.querySelector(".leaving"))return; // mid-exit; animateHandPlay rebuilds after
+  if(handEl.querySelector(".leaving"))return; // mid-exit; launchPlayedCards rebuilds after
   ui.handKey=k;
   handEl.innerHTML="";
   state.hands[0].forEach(c=>{
@@ -1016,7 +1024,7 @@ function renderHand(){
    lets the transform transition play), rather than rebuilding the hand,
    which would teleport them. */
 function deselectAll(){
-  if(!state.sel.size)return;
+  if(!state||!state.sel.size)return;
   state.sel.clear();
   [...handEl.children].forEach(d=>{d.classList.remove("sel");d.setAttribute("aria-pressed",false);});
   ui.handKey=handKeyOf(); // in sync, so the next render skips the rebuild
@@ -1026,28 +1034,27 @@ function deselectAll(){
    immediately, then slide the survivors from where they were to where they
    now sit (a FLIP). Without this the gap snaps shut on the next rebuild. */
 const LEAVE_MS=460;
-function animateHandPlay(){
+/* Playing is two steps. First the raised cards are pinned out of the layout so
+   the hand closes immediately (a FLIP on the survivors). Then, once the play has
+   been drawn on the table, each pinned card is aimed at its own counterpart
+   there — matching position, size, and tilt — so the handoff is invisible. */
+function liftPlayedCards(){
   const cards=[...handEl.children];
-  if(!cards.length||typeof handEl.getBoundingClientRect!=="function")return;
+  if(!cards.length||typeof handEl.getBoundingClientRect!=="function")return null;
   const box=handEl.getBoundingClientRect();
-  const pile=pileEl.getBoundingClientRect();
   const before=cards.map(c=>c.getBoundingClientRect());
   const going=cards.filter(c=>c.classList.contains("sel"));
+  if(!going.length)return null;
   going.forEach(c=>{
-    // Pin each card exactly where it sits (the rect already includes its
-    // raised offset), out of the flow so the row closes up immediately.
+    // The rect already includes the card's raised offset, so pinning it there
+    // with no transform leaves it exactly where it looked.
     const r=before[cards.indexOf(c)];
     c.style.position="absolute";
     c.style.margin="0";
     c.style.transform="none";
     c.style.left=(r.left-box.left)+"px";
     c.style.top=(r.top-box.top)+"px";
-    // Destination: the middle of the table, from wherever in the hand it sat.
-    const dx=(pile.left+pile.width/2)-(r.left+r.width/2);
-    const dy=(pile.top+pile.height/2)-(r.top+r.height/2);
-    c.style.setProperty("--tx",dx+"px");
-    c.style.setProperty("--ty",dy+"px");
-    c.classList.add("leaving","flying"); // synchronous: renderHand must see it this tick
+    c.classList.add("leaving"); // synchronous: renderHand must see it this tick
   });
   cards.forEach((c,i)=>{ // survivors: start at the old spot, ease to the new one
     if(going.includes(c))return;
@@ -1057,7 +1064,22 @@ function animateHandPlay(){
     c.style.transform=`translateX(${dx}px)`;
     raf(()=>{c.style.transition="transform .3s ease";c.style.transform="";});
   });
-  // Retire the departed once they've gone, then let the hand rebuild.
+  return {going,from:going.map(c=>c.getBoundingClientRect())};
+}
+function launchPlayedCards(flight){
+  if(!flight)return;
+  const {going,from}=flight;
+  const group=pileEl.children[pileEl.children.length-1];
+  const targets=group?[...group.children]:[];
+  going.forEach((c,i)=>{
+    const t=targets[i]&&targets[i].getBoundingClientRect();
+    if(t&&t.width){
+      c.style.setProperty("--tx",((t.left+t.width/2)-(from[i].left+from[i].width/2))+"px");
+      c.style.setProperty("--ty",((t.top+t.height/2)-(from[i].top+from[i].height/2))+"px");
+      c.style.setProperty("--sc",(t.width/from[i].width).toFixed(3));
+    }
+    c.classList.add("flying");
+  });
   clearTimeout(ui.handTimer);
   ui.handTimer=setTimeout(()=>{going.forEach(c=>c.remove());renderHand();},LEAVE_MS);
 }
@@ -1080,9 +1102,10 @@ btnPlay.addEventListener("click",()=>{
   const combo=selectedCombo();
   if(state.turn!==0||state.over||!isLegal(combo,state.current,state.firstMove))return;
   sfx.play(combo.size);
-  animateHandPlay(); // reads the raised cards straight off the DOM
+  const flight=liftPlayedCards(); // pin them before the hand re-lays out
   ui.handKey="!";
-  applyPlay(0,combo);
+  applyPlay(0,combo);             // the play is drawn on the table, still hidden
+  launchPlayedCards(flight);      // now aim each card at where it will land
 });
 btnPass.addEventListener("click",()=>{
   if(state.turn!==0||state.over||!state.current)return;
@@ -1105,7 +1128,10 @@ btnSound.addEventListener("click",()=>setSound(!audio.on));
 // Browsers only allow audio after a gesture; the first tap anywhere unlocks it.
 addEventListener("pointerdown",()=>audio.ready(),{once:true});
 const helpOverlay=document.getElementById("helpOverlay");
-document.getElementById("btnHelp").addEventListener("click",()=>helpOverlay.classList.add("show"));
+const home=document.getElementById("home");
+const openHelp=()=>helpOverlay.classList.add("show");
+document.getElementById("btnHelp").addEventListener("click",openHelp);
+document.getElementById("btnHelpHome").addEventListener("click",openHelp);
 document.getElementById("btnHelpClose").addEventListener("click",()=>helpOverlay.classList.remove("show"));
 helpOverlay.addEventListener("click",e=>{if(e.target===helpOverlay)helpOverlay.classList.remove("show")});
 document.querySelector(".table").addEventListener("pointerdown",deselectAll);
@@ -1114,9 +1140,20 @@ if("serviceWorker" in navigator){
   addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 }
 
+/* The home screen is also where audio gets unlocked: browsers only allow sound
+   after a gesture, so the first tap has to happen before the deal. */
+const resumable=loadHand();
+document.getElementById("btnStart").textContent=resumable?"Continue":"Deal";
+document.getElementById("homeRecord").textContent=career.matches
+  ?`You've won ${career.won} of ${career.matches} matches`
+  :"Beat Kit, Chun, and Ming over ten hands";
+document.getElementById("btnStart").addEventListener("click",()=>{
+  audio.ready();
+  home.classList.remove("show");
+  startHand(resumable);
+},{once:true});
 renderDifficulty();
 renderSound();
-startHand(loadHand()); // resume the hand in progress, if there is one
 </script>
 </body>
 </html>

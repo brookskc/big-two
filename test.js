@@ -48,7 +48,10 @@ const stubs = {
   confirm: () => true,
   matchMedia: () => ({ matches: true }),
   addEventListener: () => {},
-  setTimeout: (fn) => { if (typeof fn === "function") fn(); return { unref(){} }; },
+  /* Timers are held, never fired: the game schedules its bot turns through
+     setTimeout, and letting those run would auto-play moves the tests think
+     they are driving themselves. Tests that need a timer fire it explicitly. */
+  setTimeout: () => ({ unref(){} }),
   clearTimeout: () => {}
 };
 for (const k of Object.keys(stubs)) Object.defineProperty(global, k, { value: stubs[k], configurable: true, writable: true });
@@ -60,6 +63,7 @@ Math.random = () => {
   seed = (seed * 1103515245 + 12345) & 0x7fffffff;
   return seed / 0x7fffffff;
 };
+const reseed = (s) => { seed = s; };
 
 /* The game keeps its state in let/const bindings, which direct eval does not
    expose. Appending an accessor object that closes over those bindings gives
@@ -68,7 +72,7 @@ const G = eval(script + `
 ;({
   classify, beats, isLegal, unseenHigher, botChoose,
   newMatch, startHand, applyPlay, applyPass,
-  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, animateHandPlay,
+  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, liftPlayedCards,
   saveHand, loadHand, botChoose: botChoose, setSound, sfx,
   get audio(){ return audio; },
   get match(){ return match; },
@@ -127,26 +131,37 @@ for (const d of ["easy", "medium", "hard"]) {
   check(`${d}: full match completes zero-sum`, scores.reduce((a, b) => a + b, 0) === 0);
 }
 
-// --- bot quality: seat-mixed difficulties over many matches -----------------------
+// --- bot quality ---------------------------------------------------------------
+/* Strength has to be measured across several decks AND with the difficulties
+   rotated through every seat: a single seed with fixed seats once showed hard
+   beating medium when it was in fact losing to both easier bots. */
 console.log("bot quality");
-const modes = ["easy", "medium", "hard", "medium"];
-const totals = [0, 0, 0, 0];
-for (let m = 0; m < 30; m++) {
-  G.newMatch();
-  let guard = 0;
-  while (G.match.hand < G.MATCH_LEN && guard++ < 60000) {
-    if (G.state.over) { G.startHand(); continue; }
-    const s = G.state.turn;
-    G.difficulty = modes[s];
-    const p = G.botChoose(s);
-    if (p) G.applyPlay(s, p); else G.applyPass(s);
+{
+  const base = ["easy", "medium", "hard", "medium"];
+  const total = { easy: 0, medium: 0, hard: 0 };
+  const seats = { easy: 0, medium: 0, hard: 0 };
+  for (const s of [11, 222, 3333, 44444]) {
+    reseed(s);
+    for (let m = 0; m < 40; m++) {
+      const modes = base.map((_, i) => base[(i + m) % 4]);
+      G.newMatch();
+      let guard = 0;
+      while (G.match.hand < G.MATCH_LEN && guard++ < 60000) {
+        if (G.state.over) { G.startHand(); continue; }
+        const seat = G.state.turn;
+        G.difficulty = modes[seat];
+        const p = G.botChoose(seat);
+        if (p) G.applyPlay(seat, p); else G.applyPass(seat);
+      }
+      modes.forEach((mode, i) => { total[mode] += G.match.scores[i]; seats[mode]++; });
+    }
   }
-  totals.forEach((_, i) => totals[i] += G.match.scores[i]);
+  const avg = { easy: total.easy / seats.easy, medium: total.medium / seats.medium, hard: total.hard / seats.hard };
+  console.log(`  score per match over 160 matches, seats rotated:  easy ${avg.easy.toFixed(2)}  medium ${avg.medium.toFixed(2)}  hard ${avg.hard.toFixed(2)}`);
+  check("hard outscores medium", avg.hard > avg.medium);
+  check("hard outscores easy", avg.hard > avg.easy);
+  check("hard finishes positive", avg.hard > 0);
 }
-const avg = { easy: totals[0] / 30, medium: (totals[1] + totals[3]) / 60, hard: totals[2] / 30 };
-console.log(`  avg/match  easy ${avg.easy.toFixed(1)}  medium ${avg.medium.toFixed(1)}  hard ${avg.hard.toFixed(1)}`);
-check("hard outscores medium", avg.hard > avg.medium);
-check("hard outscores easy", avg.hard > avg.easy);
 
 // --- selection identity (regression: selection must survive a stale hand layout) ---
 console.log("selection");
@@ -175,7 +190,7 @@ G.newMatch();
   global.setTimeout = () => ({});             // hold the deferred cleanup so we can inspect mid-flight
   const before = handEl.children.length;
   handEl.children[0].classList.add("sel");    // pretend the first card is raised
-  G.animateHandPlay();
+  G.liftPlayedCards();
   check("the departing card is marked in the same tick", !!handEl.querySelector(".leaving"));
   G.state.hands[0].shift();                   // the model moves on, as applyPlay would
   G.renderHand();

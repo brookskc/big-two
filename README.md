@@ -40,9 +40,9 @@ You play against Kit, Chun, and Ming. Three difficulty modes, selectable in-game
 
 - **Easy** answers with the cheapest legal play, never passes by choice, and leads its lowest single.
 - **Medium** plays the cheapest legal answer but protects its 2s and intact pairs with fixed rules, and dumps low cards in big shapes when leading.
-- **Hard** runs a hand-strength evaluator: it greedily partitions its hand into the fewest plays needed to empty it, penalizes hoarding (the score multipliers punish getting caught heavy), and decides whether to pass by comparing the structural cost of the cheapest answer against the tempo value of staying in the trick. It also counts cards: control value is computed from what's actually still unseen, so a king is treated as the boss card once both 2s and all four aces have hit the table. And it plays endgame denial, beating singles with its tallest card when someone is nearly out.
+- **Hard** scores every legal option by the hand it would leave behind: a greedy partition into the fewest plays needed to go out, a cost for holding cards (the multipliers punish getting caught heavy), and control valued by what is actually still unseen, so a king counts as the boss card once both 2s and all four aces have hit the table. It never passes when it can legally play, because shedding wins under settlement scoring. It also plays endgame denial, beating singles with its tallest card when someone is nearly out.
 
-In a 250-hand simulation, hard gives up markedly fewer points per match than medium, and medium fewer than easy.
+Measured over 160 matches with the difficulties rotated through every seat across four decks: hard averages +47 points per match, medium −4, easy −40. `test.js` runs that measurement and fails if the ladder ever inverts.
 
 ## Tech
 
