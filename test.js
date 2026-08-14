@@ -273,6 +273,16 @@ console.log("card flight");
     retireAt >= revealAt + revealFor);
 }
 
+// --- card identity (regression: a card in flight is swapped for one on the table) ---
+console.log("card sizing");
+{
+  const pileOverrides = html.match(/\.pile \.card\{[^}]*\}/g) || [];
+  check("pile cards are not resized away from hand cards",
+    !pileOverrides.some(r => /width|height|font-size/.test(r)));
+  const pipOverride = /\.pile \.card [^{]*\{[^}]*font-size/.test(html);
+  check("pile card type is not resized either", !pipOverride);
+}
+
 // --- persistence guards ------------------------------------------------------------
 console.log("persistence");
 global.localStorage.getItem = () => JSON.stringify({ scores: ["a"], hand: 0, lastWinner: -1 });

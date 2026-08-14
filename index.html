@@ -79,7 +79,7 @@
 
   /* table / pile */
   .table{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:0}
-  .pile{position:relative;height:110px;width:100%;display:flex;align-items:center;justify-content:center}
+  .pile{position:relative;height:118px;width:100%;display:flex;align-items:center;justify-content:center}
   .play-group{position:absolute;display:flex;transition:opacity .5s ease, transform .35s, filter .5s ease}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
@@ -108,9 +108,10 @@
   .card .cor{position:absolute;top:4px;left:5px;font-size:13px;font-weight:700;line-height:1.02;text-align:center;font-family:ui-rounded,-apple-system,sans-serif}
   .card .cor span{display:block;font-size:11px;font-weight:400}
   .card .pip{position:absolute;bottom:5px;right:7px;font-size:21px}
-  .pile .card{width:46px;height:66px}
-  .pile .card + .card{margin-left:-16px}
-  .pile .card .pip{font-size:18px}
+  /* Pile cards are deliberately identical to hand cards: a played card flies
+     from the hand and is swapped for one of these, so any difference in size
+     or type would show as a pop at the moment it lands. */
+  .pile .card + .card{margin-left:-20px}
 
   /* my hand */
   .me{padding:6px 0 10px}
@@ -119,7 +120,7 @@
     position:relative;border-radius:18px;transition:background .35s, box-shadow .35s;
   }
   .hand.turn{background:radial-gradient(70% 95% at 50% 100%,rgba(214,162,62,.20),transparent 75%);box-shadow:inset 0 -1px 0 rgba(214,162,62,.35)}
-  .hand .card{margin-left:-26px;transition:transform .16s ease}
+  .hand .card{margin-left:-26px;transition:transform .16s ease, box-shadow .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
   .hand .card.leaving{pointer-events:none;z-index:3}
@@ -1055,6 +1056,7 @@ function liftPlayedCards(){
     c.style.transform="none";
     c.style.left=(r.left-box.left)+"px";
     c.style.top=(r.top-box.top)+"px";
+    c.classList.remove("sel");  // it's played now: drop the gold ring before it flies
     c.classList.add("leaving"); // synchronous: renderHand must see it this tick
   });
   cards.forEach((c,i)=>{ // survivors: start at the old spot, ease to the new one
