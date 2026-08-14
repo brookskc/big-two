@@ -72,7 +72,7 @@ const G = eval(script + `
 ;({
   classify, beats, isLegal, unseenHigher, botChoose,
   newMatch, startHand, applyPlay, applyPass,
-  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, liftPlayedCards,
+  loadMatch, loadCareer, MATCH_LEN, selectedCombo, val, renderHand, playFromHand,
   saveHand, loadHand, botChoose: botChoose, setSound, sfx,
   get audio(){ return audio; },
   get match(){ return match; },
@@ -181,22 +181,28 @@ G.newMatch();
   G.state.sel.clear();
 }
 
-// --- play animation (regression: the hand must not be rebuilt out from under a departing card) ---
+// --- play animation (one element per card: nothing is swapped mid-flight) ---
 console.log("play animation");
 G.newMatch();
 {
   const handEl = global.document._byId.hand;
-  const realTimeout = global.setTimeout;
-  global.setTimeout = () => ({});             // hold the deferred cleanup so we can inspect mid-flight
-  const before = handEl.children.length;
-  handEl.children[0].classList.add("sel");    // pretend the first card is raised
-  G.liftPlayedCards();
-  check("the departing card is marked in the same tick", !!handEl.querySelector(".leaving"));
-  G.state.hands[0].shift();                   // the model moves on, as applyPlay would
+  const pileEl = global.document._byId.pile;
   G.renderHand();
-  check("renderHand leaves the departing card alone",
-    handEl.children.length === before && !!handEl.querySelector(".leaving"));
-  global.setTimeout = realTimeout;
+  const startCount = handEl.children.length;
+  const card = G.state.hands[0][0];
+  G.state.sel.add(G.val(card));
+  const combo = G.selectedCombo();
+  G.playFromHand(combo);
+  check("the hand keeps exactly the cards still held",
+    handEl.children.length === startCount - 1 &&
+    handEl.children.length === G.state.hands[0].length);
+  check("no played card lingers in the hand",
+    !handEl.children.some((c) => String(c.dataset.val) === String(G.val(card))));
+  const group = pileEl.children[pileEl.children.length - 1];
+  check("the played card is on the table, tagged so it can be followed",
+    !!group && group.children.some((c) => String(c.dataset.val) === String(G.val(card))));
+  check("every card on the table knows its resting position",
+    !!group && group.children.every((c) => typeof c.dataset.rest === "string"));
 }
 
 // --- mid-hand persistence (a suspended app must not lose the hand) ---
@@ -259,18 +265,17 @@ console.log("sound");
   global.localStorage.setItem = () => {};
 }
 
-// --- card flight timing (regression: the table must not reveal a card mid-flight) ---
+// --- card flight (regression: a played card must be one element, not a hand-off) ---
 console.log("card flight");
 {
-  const num = (re) => { const m = html.match(re); return m ? parseFloat(m[1]) : NaN; };
-  const flight = num(/\.hand \.card\.flying\{animation:toss ([\d.]+)s/);
-  const revealAt = num(/\.play-group\.arrive\{animation:arrive [\d.]+s [^;]*? ([\d.]+)s backwards/);
-  const revealFor = num(/\.play-group\.arrive\{animation:arrive ([\d.]+)s/);
-  const retireAt = num(/const LEAVE_MS=(\d+)/) / 1000;
-  check("flight and reveal timings are declared", [flight, revealAt, revealFor, retireAt].every(Number.isFinite));
-  check("the table reveals the card only once the flight has landed", revealAt >= flight);
-  check("the flying card is retired only after the card beneath is opaque",
-    retireAt >= revealAt + revealFor);
+  /* The bug this guards against: animating a stand-in for the card and swapping
+     it for the real one on arrival. Two elements can never match perfectly —
+     an animating one is composited and rasterized differently — so the swap
+     shows as a glitch at the moment it lands. */
+  check("no separate flying-card animation exists", !/\.card\.flying|@keyframes toss/.test(html));
+  check("the table is not revealed on a timer", !/@keyframes arrive/.test(html));
+  check("pile groups stay untransformed, so flight maths is in screen space",
+    !/g\.style\.transform=`rotate/.test(html));
 }
 
 // --- card identity (regression: a card in flight is swapped for one on the table) ---

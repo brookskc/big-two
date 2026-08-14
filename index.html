@@ -83,8 +83,6 @@
   .play-group{position:absolute;display:flex;transition:opacity .5s ease, transform .35s, filter .5s ease}
   .play-group.old{opacity:.28;filter:saturate(.6)}
   .play-group.gone{opacity:0}
-  .play-group.arrive{animation:arrive .12s ease-out .38s backwards} /* uncovered only once the hand cards have landed */
-  @keyframes arrive{from{opacity:0}}
   .play-group.fly1{animation:fly1 .42s cubic-bezier(.2,.8,.3,1)}
   .play-group.fly2{animation:fly2 .42s cubic-bezier(.2,.8,.3,1)}
   .play-group.fly3{animation:fly3 .42s cubic-bezier(.2,.8,.3,1)}
@@ -123,14 +121,6 @@
   .hand .card{margin-left:-26px;transition:transform .16s ease, box-shadow .16s ease}
   .hand .card:first-child{margin-left:0}
   .hand .card.sel{transform:translateY(var(--raise));box-shadow:0 6px 12px rgba(0,0,0,.45), 0 0 0 2px var(--gold)}
-  .hand .card.leaving{pointer-events:none;z-index:3}
-  /* A keyframe animation, not a transition: the destination is set in the same
-     tick the card is pinned, and transitions can be skipped when their rule and
-     their value change land in one style recalc. */
-  .hand .card.flying{animation:toss .38s cubic-bezier(.33,0,.3,1) forwards}
-  @keyframes toss{
-    to{transform:translate(var(--tx),var(--ty)) rotate(var(--rot,0deg)) scale(var(--sc,.885))}
-  }
   .controls{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}
   .btn{
     font:inherit;font-weight:600;font-size:15px;border-radius:12px;padding:12px 0;border:none;
@@ -616,7 +606,7 @@ function newMatch(){
 let state=null;
 /* Render bookkeeping: keys remember what each region last drew so unchanged
    regions aren't rebuilt (a rebuild kills any CSS animation mid-flight). */
-const ui={tiles:null,pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null,handTimer:null};
+const ui={tiles:null,pileKey:"!",handKey:"!",ovTimer:null,bubbleTimer:null};
 const raf=typeof requestAnimationFrame==="function"?requestAnimationFrame:f=>setTimeout(f,16);
 
 function startHand(resume){
@@ -639,7 +629,7 @@ function startHand(resume){
     sel:new Set(),seen:new Set(),plays:[],animSeen:0,bubble:null,timer:null,
     ...(resume?{current:rest.current,owner:rest.owner,seen:rest.seen,plays:rest.plays}:{})
   };
-  clearTimeout(ui.handTimer);clearTimeout(ui.bubbleTimer);
+  clearTimeout(ui.bubbleTimer);
   ui.pileKey=ui.handKey="!";
   overlay.classList.remove("show");
   handNo.textContent=`Hand ${match.hand+1} / ${MATCH_LEN} · You ${scoreFmt(match.scores[0])}`;
@@ -894,6 +884,7 @@ const ariaName=c=>`${RANK_NAMES[c.r]} of ${SUIT_NAMES[c.s]}`;
 function cardEl(c){
   const d=document.createElement("div");
   d.className="card"+(RED.has(c.s)?" red":"");
+  d.dataset.val=val(c); // lets a card be matched to itself across a re-render
   d.innerHTML=`<div class="cor">${RANKS[c.r]}<span>${SUITS[c.s]}</span></div><div class="pip">${SUITS[c.s]}</div>`;
   return d;
 }
@@ -960,24 +951,24 @@ function renderPile(){
     const g=document.createElement("div");
     const last=i===shown.length-1;
     g.className="play-group";
-    // Seat 0's cards physically fly out of the hand, so its play only needs
-    // to appear as they land; the bots' plays fly in from their seats.
-    if(last&&state.plays.length>state.animSeen)g.classList.add(p.seat===0?"arrive":"fly"+p.seat);
-    const rot=((p.seat*47)%5)-2; // whisper of a group tilt
-    g.style.transform=`rotate(${rot}deg)`; // start where it landed
+    // Bots' plays fly in from their seats. Yours needs no group animation: each
+    // card is placed back at your hand and travels home individually.
+    if(last&&p.seat!==0&&state.plays.length>state.animSeen)g.classList.add("fly"+p.seat);
     // Dim and lift the previous play a frame after insertion so both fade and
     // drift transition — created with final styles, they'd cut instead.
     if(!(last&&state.current))raf(()=>{
       g.classList.add("old");
-      g.style.transform=`rotate(${rot}deg) translateY(-6px)`;
+      g.style.transform="translateY(-6px)";
     });
     p.combo.cards.forEach((c,j)=>{
       const d=cardEl(c);
-      // each card lands with its own small twist and drop, like a real toss
+      // Each card settles at its own small twist and drop, like a real toss.
+      // The group itself is never transformed, so a card arriving from the hand
+      // can be positioned in plain screen coordinates.
       const jr=((p.seat*31+j*17)%7)-3;
       const jy=((p.seat*13+j*11)%5)-2;
-      d.style.transform=`rotate(${jr}deg) translateY(${jy}px)`;
-      d.dataset.rot=rot+jr; // total tilt on screen, for cards flying in to match
+      d.dataset.rest=`rotate(${jr}deg) translateY(${jy}px)`;
+      d.style.transform=d.dataset.rest;
       g.appendChild(d);
     });
     pileEl.appendChild(g);
@@ -996,7 +987,6 @@ const handKeyOf=()=>state.hands[0].map(val).join(",")+"|"+[...state.sel].sort((a
 function renderHand(){
   const k=handKeyOf();
   if(k===ui.handKey)return;
-  if(handEl.querySelector(".leaving"))return; // mid-exit; launchPlayedCards rebuilds after
   ui.handKey=k;
   handEl.innerHTML="";
   state.hands[0].forEach(c=>{
@@ -1035,67 +1025,42 @@ function deselectAll(){
 /* Playing cards: take the played ones out of the layout so the hand closes
    immediately, then slide the survivors from where they were to where they
    now sit (a FLIP). Without this the gap snaps shut on the next rebuild. */
-const LEAVE_MS=520; // flight (380) + the reveal underneath it (120), then swap
-/* Playing is two steps. First the raised cards are pinned out of the layout so
-   the hand closes immediately (a FLIP on the survivors). Then, once the play has
-   been drawn on the table, each pinned card is aimed at its own counterpart
-   there — matching position, size, and tilt — so the handoff is invisible. */
-function liftPlayedCards(){
-  const cards=[...handEl.children];
-  if(!cards.length||typeof handEl.getBoundingClientRect!=="function")return null;
-  const box=handEl.getBoundingClientRect();
-  const before=cards.map(c=>c.getBoundingClientRect());
-  const going=cards.filter(c=>c.classList.contains("sel"));
-  if(!going.length)return null;
-  going.forEach(c=>{
-    // The rect already includes the card's raised offset, so pinning it there
-    // with no transform leaves it exactly where it looked.
-    const r=before[cards.indexOf(c)];
-    c.style.position="absolute";
-    c.style.margin="0";
-    c.style.transform="none";
-    c.style.left=(r.left-box.left)+"px";
-    c.style.top=(r.top-box.top)+"px";
-    c.classList.remove("sel");  // it's played now: drop the gold ring before it flies
-    c.classList.add("leaving"); // synchronous: renderHand must see it this tick
+/* Playing a card is one continuous motion of ONE element. The play resolves
+   first, so the cards are already on the table; each is then placed back where
+   it sat in your hand and released. Nothing is swapped at the end of the
+   journey, because the card that lands is the card that will stay there. */
+const FLIGHT="transform .4s cubic-bezier(.33,0,.3,1)";
+const rectsByCard=el=>{
+  const m=new Map();
+  if(typeof el.getBoundingClientRect!=="function")return m;
+  [...el.children].forEach(c=>{
+    if(c.dataset&&c.dataset.val!==undefined)m.set(c.dataset.val,c.getBoundingClientRect());
   });
-  cards.forEach((c,i)=>{ // survivors: start at the old spot, ease to the new one
-    if(going.includes(c))return;
-    const dx=before[i].left-c.getBoundingClientRect().left;
-    if(!dx)return;
-    c.style.transition="none";
-    c.style.transform=`translateX(${dx}px)`;
-    raf(()=>{c.style.transition="transform .3s ease";c.style.transform="";});
-  });
-  return {going,from:going.map(c=>c.getBoundingClientRect())};
+  return m;
+};
+/* Start `el` at the position it used to occupy, then let it travel home.
+   The reflow read commits the starting position, so the browser has a value
+   to animate from instead of collapsing both styles into one recalculation. */
+function glideFrom(el,from,rest){
+  if(!from||typeof el.getBoundingClientRect!=="function")return;
+  const now=el.getBoundingClientRect();
+  const dx=(from.left+from.width/2)-(now.left+now.width/2);
+  const dy=(from.top+from.height/2)-(now.top+now.height/2);
+  if(!dx&&!dy)return;
+  el.style.transition="none";
+  el.style.transform=`translate(${dx}px,${dy}px) ${rest}`;
+  void el.offsetWidth;
+  el.style.transition=FLIGHT;
+  el.style.transform=rest;
 }
-function launchPlayedCards(flight){
-  if(!flight)return;
-  const {going,from}=flight;
-  const retire=()=>{going.forEach(c=>c.remove());renderHand();};
-  // With motion turned off there's no flight to watch, so don't leave a
-  // duplicate card sitting on the table waiting for one.
-  if(typeof matchMedia==="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches)return retire();
+function playFromHand(combo){
+  const before=rectsByCard(handEl); // where every card sits right now
+  applyPlay(0,combo);               // the hand re-lays out; the table draws the play
   const group=pileEl.children[pileEl.children.length-1];
-  const targets=group?[...group.children]:[];
-  going.forEach((c,i)=>{
-    const el=targets[i];
-    const t=el&&el.getBoundingClientRect();
-    if(t&&t.width){
-      // Centre to centre: rotation and scale pivot on the centre, so this
-      // delta stays exact whatever tilt the card ends up at.
-      c.style.setProperty("--tx",((t.left+t.width/2)-(from[i].left+from[i].width/2))+"px");
-      c.style.setProperty("--ty",((t.top+t.height/2)-(from[i].top+from[i].height/2))+"px");
-      // Layout widths, not bounding boxes: a tilted card's box is wider than
-      // the card, which would land it oversized.
-      const scale=el.offsetWidth/c.offsetWidth;
-      if(scale>0)c.style.setProperty("--sc",scale.toFixed(4));
-      if(el.dataset.rot!==undefined)c.style.setProperty("--rot",el.dataset.rot+"deg");
-    }
-    c.classList.add("flying");
-  });
-  clearTimeout(ui.handTimer);
-  ui.handTimer=setTimeout(retire,LEAVE_MS);
+  if(group)[...group.children].forEach(d=>
+    glideFrom(d,before.get(d.dataset.val),d.dataset.rest||""));
+  [...handEl.children].forEach(c=>  // and the rest of the hand closes the gap
+    glideFrom(c,before.get(c.dataset.val),""));
 }
 function selectedCombo(){
   const cards=state.hands[0].filter(c=>state.sel.has(val(c)));
@@ -1116,10 +1081,7 @@ btnPlay.addEventListener("click",()=>{
   const combo=selectedCombo();
   if(state.turn!==0||state.over||!isLegal(combo,state.current,state.firstMove))return;
   sfx.play(combo.size);
-  const flight=liftPlayedCards(); // pin them before the hand re-lays out
-  ui.handKey="!";
-  applyPlay(0,combo);             // the play is drawn on the table, still hidden
-  launchPlayedCards(flight);      // now aim each card at where it will land
+  playFromHand(combo);
 });
 btnPass.addEventListener("click",()=>{
   if(state.turn!==0||state.over||!state.current)return;
